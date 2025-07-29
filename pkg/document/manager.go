@@ -1,0 +1,387 @@
+package document
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/gomcpgo/docgen/pkg/config"
+	"github.com/gomcpgo/docgen/pkg/storage"
+	"github.com/gomcpgo/docgen/pkg/types"
+)
+
+// Manager handles high-level document operations
+type Manager struct {
+	config  *config.Config
+	storage storage.Storage
+}
+
+// NewManager creates a new document manager
+func NewManager(cfg *config.Config, stor storage.Storage) *Manager {
+	return &Manager{
+		config:  cfg,
+		storage: stor,
+	}
+}
+
+// CreateDocument creates a new document with the given parameters
+func (m *Manager) CreateDocument(title, author string, docType types.DocumentType) (types.DocumentID, error) {
+	if title == "" {
+		return "", fmt.Errorf("document title is required")
+	}
+	if author == "" {
+		return "", fmt.Errorf("document author is required")
+	}
+
+	// Generate a unique document ID
+	docID := types.DocumentID(generateDocumentID(title))
+
+	// Validate the document ID
+	if err := docID.Validate(); err != nil {
+		return "", fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	// Check if document already exists
+	exists, err := m.storage.DocumentExists(string(docID))
+	if err != nil {
+		return "", fmt.Errorf("failed to check document existence: %w", err)
+	}
+	if exists {
+		return "", fmt.Errorf("document with ID %s already exists", docID)
+	}
+
+	// Check document count limit
+	if err := m.checkDocumentLimit(); err != nil {
+		return "", err
+	}
+
+	// Create document structure
+	now := time.Now()
+	doc := &types.Document{
+		ID:        docID,
+		Title:     title,
+		Author:    author,
+		Type:      docType,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Chapters:  []types.Chapter{},
+	}
+
+	if err := m.storage.CreateDocumentStructure(doc); err != nil {
+		return "", fmt.Errorf("failed to create document structure: %w", err)
+	}
+
+	return docID, nil
+}
+
+// GetDocumentStructure returns the complete document structure
+func (m *Manager) GetDocumentStructure(docID types.DocumentID) (*types.Manifest, error) {
+	if err := docID.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	exists, err := m.storage.DocumentExists(string(docID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to check document existence: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("document %s not found", docID)
+	}
+
+	manifest, err := m.storage.LoadManifest(string(docID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load document manifest: %w", err)
+	}
+
+	return manifest, nil
+}
+
+// DeleteDocument removes a document and all its contents
+func (m *Manager) DeleteDocument(docID types.DocumentID) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	exists, err := m.storage.DocumentExists(string(docID))
+	if err != nil {
+		return fmt.Errorf("failed to check document existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("document %s not found", docID)
+	}
+
+	if err := m.storage.DeleteDocument(string(docID)); err != nil {
+		return fmt.Errorf("failed to delete document: %w", err)
+	}
+
+	return nil
+}
+
+// AddChapter adds a new chapter to the document
+func (m *Manager) AddChapter(docID types.DocumentID, title string, position *int) (types.ChapterNumber, error) {
+	if err := docID.Validate(); err != nil {
+		return 0, fmt.Errorf("invalid document ID: %w", err)
+	}
+	if title == "" {
+		return 0, fmt.Errorf("chapter title is required")
+	}
+
+	// Load current manifest
+	manifest, err := m.storage.LoadManifest(string(docID))
+	if err != nil {
+		return 0, fmt.Errorf("failed to load document manifest: %w", err)
+	}
+
+	// Determine chapter number
+	var chapterNum types.ChapterNumber
+	if position != nil {
+		// Insert at specific position (renumber subsequent chapters)
+		chapterNum = types.ChapterNumber(*position)
+		if err := m.renumberChapters(string(docID), manifest, int(chapterNum), 1); err != nil {
+			return 0, fmt.Errorf("failed to renumber chapters: %w", err)
+		}
+	} else {
+		// Add at the end
+		chapterNum = types.ChapterNumber(len(manifest.Document.Chapters) + 1)
+	}
+
+	// Create chapter
+	now := time.Now()
+	chapter := &types.Chapter{
+		Number:    chapterNum,
+		Title:     title,
+		Content:   "",
+		Sections:  []types.Section{},
+		Figures:   []types.Figure{},
+		Tables:    []types.Table{},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// Create chapter structure
+	if err := m.storage.CreateChapterStructure(string(docID), chapter); err != nil {
+		return 0, fmt.Errorf("failed to create chapter structure: %w", err)
+	}
+
+	// Update manifest
+	manifest.Document.Chapters = append(manifest.Document.Chapters, *chapter)
+	manifest.ChapterCounts[chapterNum] = types.ChapterCount{
+		Sections: 0,
+		Figures:  0,
+		Tables:   0,
+	}
+	manifest.UpdatedAt = now
+
+	if err := m.storage.SaveManifest(string(docID), manifest); err != nil {
+		return 0, fmt.Errorf("failed to update manifest: %w", err)
+	}
+
+	return chapterNum, nil
+}
+
+// GetChapter returns a specific chapter
+func (m *Manager) GetChapter(docID types.DocumentID, chapterNum types.ChapterNumber) (*types.Chapter, error) {
+	if err := docID.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	exists, err := m.storage.ChapterExists(string(docID), int(chapterNum))
+	if err != nil {
+		return nil, fmt.Errorf("failed to check chapter existence: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("chapter %d not found in document %s", chapterNum, docID)
+	}
+
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chapter metadata: %w", err)
+	}
+
+	// Load chapter content
+	content, err := m.storage.LoadChapterContent(string(docID), int(chapterNum))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chapter content: %w", err)
+	}
+	chapter.Content = content
+
+	return chapter, nil
+}
+
+// UpdateChapterMetadata updates chapter metadata (title, etc.)
+func (m *Manager) UpdateChapterMetadata(docID types.DocumentID, chapterNum types.ChapterNumber, title string) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+	if title == "" {
+		return fmt.Errorf("chapter title is required")
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to load chapter metadata: %w", err)
+	}
+
+	// Update fields
+	chapter.Title = title
+	chapter.UpdatedAt = time.Now()
+
+	// Save updated metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Update manifest
+	manifest, err := m.storage.LoadManifest(string(docID))
+	if err != nil {
+		return fmt.Errorf("failed to load manifest: %w", err)
+	}
+
+	for i := range manifest.Document.Chapters {
+		if manifest.Document.Chapters[i].Number == chapterNum {
+			manifest.Document.Chapters[i].Title = title
+			manifest.Document.Chapters[i].UpdatedAt = time.Now()
+			break
+		}
+	}
+	manifest.UpdatedAt = time.Now()
+
+	if err := m.storage.SaveManifest(string(docID), manifest); err != nil {
+		return fmt.Errorf("failed to update manifest: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteChapter removes a chapter and renumbers subsequent chapters
+func (m *Manager) DeleteChapter(docID types.DocumentID, chapterNum types.ChapterNumber) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	exists, err := m.storage.ChapterExists(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to check chapter existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("chapter %d not found in document %s", chapterNum, docID)
+	}
+
+	// Load manifest
+	manifest, err := m.storage.LoadManifest(string(docID))
+	if err != nil {
+		return fmt.Errorf("failed to load manifest: %w", err)
+	}
+
+	// Delete chapter directory
+	if err := m.storage.DeleteChapter(string(docID), int(chapterNum)); err != nil {
+		return fmt.Errorf("failed to delete chapter: %w", err)
+	}
+
+	// Renumber subsequent chapters
+	if err := m.renumberChapters(string(docID), manifest, int(chapterNum)+1, -1); err != nil {
+		return fmt.Errorf("failed to renumber chapters: %w", err)
+	}
+
+	// Update manifest by removing the chapter
+	var updatedChapters []types.Chapter
+	for _, ch := range manifest.Document.Chapters {
+		if ch.Number != chapterNum {
+			if ch.Number > chapterNum {
+				ch.Number--
+			}
+			updatedChapters = append(updatedChapters, ch)
+		}
+	}
+	manifest.Document.Chapters = updatedChapters
+
+	// Update chapter counts
+	updatedCounts := make(map[types.ChapterNumber]types.ChapterCount)
+	for chNum, count := range manifest.ChapterCounts {
+		if chNum != chapterNum {
+			if chNum > chapterNum {
+				updatedCounts[chNum-1] = count
+			} else {
+				updatedCounts[chNum] = count
+			}
+		}
+	}
+	manifest.ChapterCounts = updatedCounts
+	manifest.UpdatedAt = time.Now()
+
+	if err := m.storage.SaveManifest(string(docID), manifest); err != nil {
+		return fmt.Errorf("failed to update manifest: %w", err)
+	}
+
+	return nil
+}
+
+// ConfigureDocument updates document configuration (style, pandoc options)
+func (m *Manager) ConfigureDocument(docID types.DocumentID, styleUpdates *types.Style, pandocOptions *types.PandocConfig) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	exists, err := m.storage.DocumentExists(string(docID))
+	if err != nil {
+		return fmt.Errorf("failed to check document existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("document %s not found", docID)
+	}
+
+	// Update style if provided
+	if styleUpdates != nil {
+		if err := m.storage.SaveStyle(string(docID), styleUpdates); err != nil {
+			return fmt.Errorf("failed to save style: %w", err)
+		}
+	}
+
+	// Update pandoc config if provided
+	if pandocOptions != nil {
+		if err := m.storage.SavePandocConfig(string(docID), pandocOptions); err != nil {
+			return fmt.Errorf("failed to save pandoc config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// checkDocumentLimit checks if the document count is within limits
+func (m *Manager) checkDocumentLimit() error {
+	docs, err := m.storage.ListDocuments()
+	if err != nil {
+		return fmt.Errorf("failed to list documents: %w", err)
+	}
+
+	if len(docs) >= m.config.MaxDocuments {
+		return fmt.Errorf("maximum number of documents (%d) reached", m.config.MaxDocuments)
+	}
+
+	return nil
+}
+
+// renumberChapters is implemented in numbering.go
+
+// generateDocumentID generates a document ID from the title
+func generateDocumentID(title string) string {
+	// Simple implementation: convert to lowercase and replace spaces with hyphens
+	// In a real implementation, you might want to use a more sophisticated approach
+	id := title
+	id = strings.ToLower(id)
+	id = strings.ReplaceAll(id, " ", "-")
+	id = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(id, "")
+	
+	// Limit length
+	if len(id) > 30 {
+		id = id[:30]
+	}
+	
+	// Add timestamp to ensure uniqueness
+	timestamp := time.Now().Unix()
+	id = fmt.Sprintf("%s-%d", id, timestamp)
+	
+	return id
+}
