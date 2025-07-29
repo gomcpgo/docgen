@@ -11,14 +11,12 @@ func TestLoadConfig(t *testing.T) {
 	originalRootDir := os.Getenv("DOCGEN_ROOT_DIR")
 	originalPandocPath := os.Getenv("PANDOC_PATH")
 	originalMaxDocs := os.Getenv("DOCGEN_MAX_DOCUMENTS")
-	originalTempDir := os.Getenv("DOCGEN_TEMP_DIR")
 
 	defer func() {
 		// Restore original env vars
 		os.Setenv("DOCGEN_ROOT_DIR", originalRootDir)
 		os.Setenv("PANDOC_PATH", originalPandocPath)
 		os.Setenv("DOCGEN_MAX_DOCUMENTS", originalMaxDocs)
-		os.Setenv("DOCGEN_TEMP_DIR", originalTempDir)
 	}()
 
 	tests := []struct {
@@ -46,14 +44,13 @@ func TestLoadConfig(t *testing.T) {
 				"DOCGEN_ROOT_DIR":      "/custom/path",
 				"PANDOC_PATH":          "/usr/bin/pandoc",
 				"DOCGEN_MAX_DOCUMENTS": "50",
-				"DOCGEN_TEMP_DIR":      "/tmp/custom",
 			},
 			wantErr: false,
 			check: func(c *Config) bool {
 				return c.RootDir == "/custom/path" &&
 					c.PandocPath == "/usr/bin/pandoc" &&
 					c.MaxDocuments == 50 &&
-					c.TempDir == "/tmp/custom"
+					c.ExportsDir == "/custom/path/exports"
 			},
 		},
 		{
@@ -85,7 +82,6 @@ func TestLoadConfig(t *testing.T) {
 			os.Unsetenv("DOCGEN_ROOT_DIR")
 			os.Unsetenv("PANDOC_PATH")
 			os.Unsetenv("DOCGEN_MAX_DOCUMENTS")
-			os.Unsetenv("DOCGEN_TEMP_DIR")
 
 			// Set test env vars
 			for key, value := range tt.envVars {

@@ -22,8 +22,8 @@ type Config struct {
 	// MaxDocuments is the maximum number of documents allowed
 	MaxDocuments int
 	
-	// TempDir is the temporary directory for exports
-	TempDir string
+	// ExportsDir is the directory for exported documents (within RootDir)
+	ExportsDir string
 	
 	// MaxFileSize is the maximum file size for uploads in bytes
 	MaxFileSize int64
@@ -37,7 +37,6 @@ func LoadConfig() (*Config, error) {
 	cfg := &Config{
 		PandocPath:    "pandoc",
 		MaxDocuments:  100,
-		TempDir:       os.TempDir(),
 		MaxFileSize:   10 * 1024 * 1024, // 10MB
 		ExportTimeout: 5 * time.Minute,
 	}
@@ -47,6 +46,9 @@ func LoadConfig() (*Config, error) {
 	if cfg.RootDir == "" {
 		return nil, fmt.Errorf("DOCGEN_ROOT_DIR environment variable is required")
 	}
+	
+	// Set exports directory within root dir
+	cfg.ExportsDir = filepath.Join(cfg.RootDir, "exports")
 	
 	// PANDOC_PATH (optional)
 	if val := os.Getenv("PANDOC_PATH"); val != "" {
@@ -70,10 +72,6 @@ func LoadConfig() (*Config, error) {
 		cfg.MaxDocuments = maxDocs
 	}
 	
-	// DOCGEN_TEMP_DIR (optional)
-	if val := os.Getenv("DOCGEN_TEMP_DIR"); val != "" {
-		cfg.TempDir = val
-	}
 	
 	// DOCGEN_MAX_FILE_SIZE (optional)
 	if val := os.Getenv("DOCGEN_MAX_FILE_SIZE"); val != "" {
@@ -167,8 +165,8 @@ func (c *Config) ChapterMetadataPath(documentID string, chapterNumber int) strin
 	return filepath.Join(c.ChapterPath(documentID, chapterNumber), "metadata.yaml")
 }
 
-// TempExportPath returns a temporary path for export files
-func (c *Config) TempExportPath(documentID, format string) string {
+// ExportPath returns the path for export files
+func (c *Config) ExportPath(documentID, format string) string {
 	filename := fmt.Sprintf("%s.%s", documentID, format)
-	return filepath.Join(c.TempDir, "docgen-exports", filename)
+	return filepath.Join(c.ExportsDir, filename)
 }

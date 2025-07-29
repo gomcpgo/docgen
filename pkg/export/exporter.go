@@ -40,14 +40,14 @@ func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, s
 	}
 
 	// Create temporary input file
-	tempInputFile := filepath.Join(e.config.TempDir, fmt.Sprintf("%s-input.md", documentID))
+	tempInputFile := filepath.Join(os.TempDir(), fmt.Sprintf("%s-input.md", documentID))
 	if err := os.WriteFile(tempInputFile, []byte(markdown), 0644); err != nil {
 		return "", fmt.Errorf("failed to write temporary input file: %w", err)
 	}
 	defer os.Remove(tempInputFile)
 
 	// Generate output file path
-	outputFile := e.config.TempExportPath(documentID, string(options.Format))
+	outputFile := e.config.ExportPath(documentID, string(options.Format))
 	if err := os.MkdirAll(filepath.Dir(outputFile), 0755); err != nil {
 		return "", fmt.Errorf("failed to create output directory: %w", err)
 	}
@@ -233,14 +233,14 @@ func (e *Exporter) PreviewChapter(documentID string, chapterNum types.ChapterNum
 	}
 
 	// Create temporary input file
-	tempInputFile := filepath.Join(e.config.TempDir, fmt.Sprintf("%s-chapter-%d-preview.md", documentID, chapterNum))
+	tempInputFile := filepath.Join(os.TempDir(), fmt.Sprintf("%s-chapter-%d-preview.md", documentID, chapterNum))
 	if err := os.WriteFile(tempInputFile, []byte(chapterContent), 0644); err != nil {
 		return "", fmt.Errorf("failed to write temporary input file: %w", err)
 	}
 	defer os.Remove(tempInputFile)
 
 	// Generate output file path
-	outputFile := filepath.Join(e.config.TempDir, fmt.Sprintf("%s-chapter-%d-preview.%s", documentID, chapterNum, format))
+	outputFile := filepath.Join(e.config.ExportsDir, fmt.Sprintf("%s-chapter-%d-preview.%s", documentID, chapterNum, format))
 	if err := os.MkdirAll(filepath.Dir(outputFile), 0755); err != nil {
 		return "", fmt.Errorf("failed to create output directory: %w", err)
 	}

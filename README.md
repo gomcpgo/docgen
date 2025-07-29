@@ -45,7 +45,6 @@ The server is configured via environment variables:
 | `PANDOC_PATH` | No | `pandoc` | Path to pandoc executable |
 | `DOCGEN_DEFAULT_STYLE` | No | - | Path to default style template |
 | `DOCGEN_MAX_DOCUMENTS` | No | `100` | Maximum number of documents |
-| `DOCGEN_TEMP_DIR` | No | System temp | Temporary directory for exports |
 | `DOCGEN_MAX_FILE_SIZE` | No | `10MB` | Maximum file size for uploads |
 | `DOCGEN_EXPORT_TIMEOUT` | No | `300s` | Export operation timeout |
 
@@ -72,21 +71,27 @@ The server is configured via environment variables:
 Each document is stored in the following structure:
 
 ```
-DocumentID/
-├── manifest.yaml          # Document metadata and structure
-├── style.yaml            # Document-specific styling
-├── pandoc-config.yaml    # Pandoc settings
-├── chapters/
-│   ├── 01/
-│   │   ├── chapter.md    # Chapter content
-│   │   └── metadata.yaml # Chapter metadata
-│   └── 02/
-│       ├── chapter.md
-│       └── metadata.yaml
-└── assets/
-    └── images/
-        ├── fig-1.1.png   # Numbered figures
-        └── fig-2.3.png
+DOCGEN_ROOT_DIR/
+├── exports/                # Exported documents (PDF, DOCX, HTML)
+│   ├── document1.pdf
+│   └── document2.docx
+├── DocumentID/
+│   ├── manifest.yaml       # Document metadata and structure
+│   ├── style.yaml         # Document-specific styling
+│   ├── pandoc-config.yaml # Pandoc settings
+│   ├── chapters/
+│   │   ├── 01/
+│   │   │   ├── chapter.md    # Chapter content
+│   │   │   └── metadata.yaml # Chapter metadata
+│   │   └── 02/
+│   │       ├── chapter.md
+│   │       └── metadata.yaml
+│   └── assets/
+│       └── images/
+│           ├── fig-1.1.png   # Numbered figures
+│           └── fig-2.3.png
+└── AnotherDocumentID/
+    └── ...
 ```
 
 ## Available Tools

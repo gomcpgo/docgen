@@ -432,7 +432,7 @@ func exportToPDF(h *docgenHandler.DocGenHandler, docID string) string {
 	}
 
 	// For demo, return a mock path
-	return filepath.Join(os.TempDir(), "docgen-exports", docID+".pdf")
+	return filepath.Join(os.Getenv("DOCGEN_ROOT_DIR"), "exports", docID+".pdf")
 }
 
 // validateDocument validates a document
