@@ -60,8 +60,11 @@ The server is configured via environment variables:
 # Show version information
 ./bin/docgen -version
 
-# Run integration tests
+# Run integration tests (temporary files deleted after)
 ./bin/docgen -test
+
+# Run integration tests and keep generated files for inspection
+./bin/docgen -test -keep-files
 ```
 
 ### Document Structure
@@ -160,7 +163,11 @@ DocumentID/
 The server includes comprehensive integration tests that create sample documents and test all major functionality:
 
 ```bash
+# Run tests (files cleaned up automatically)
 ./bin/docgen -test
+
+# Run tests and keep generated files for inspection
+./bin/docgen -test -keep-files
 ```
 
 This will:
@@ -170,6 +177,8 @@ This will:
 4. Export to PDF (if Pandoc is available)
 5. Validate document integrity
 6. Test chapter management operations
+
+When using `-keep-files`, the generated documents and PDF exports are preserved in a temporary directory for manual inspection.
 
 ## Development
 
@@ -243,10 +252,24 @@ The server uses Pandoc for professional document generation with support for:
 - Markdown tables only
 - No collaborative editing
 
+## Building
+
+```bash
+# Build the server
+go build -o bin/docgen cmd/main.go
+
+# Or use the run script
+./run.sh build
+```
+
 ## License
 
-This project is part of the gomcpgo MCP framework.
+MIT License
 
 ## Contributing
 
-Please see the main project repository for contribution guidelines.
+Pull requests welcome. Please ensure:
+- Tests pass (`./run.sh test`)
+- Integration tests pass (`./run.sh integration-test`)
+- New features include documentation
+- Code follows project style
