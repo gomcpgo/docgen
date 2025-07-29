@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gomcpgo/docgen/pkg/config"
 	"github.com/gomcpgo/docgen/pkg/types"
@@ -19,8 +20,8 @@ func setupTestExporter(t *testing.T) (*Exporter, string) {
 	cfg := &config.Config{
 		RootDir:       tempDir,
 		PandocPath:    "pandoc", // Assume pandoc is available in test environment
-		TempDir:       tempDir,
-		ExportTimeout: 30,
+		ExportsDir:    filepath.Join(tempDir, "exports"),
+		ExportTimeout: 30 * time.Second,
 	}
 
 	exporter := NewExporter(cfg)

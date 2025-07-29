@@ -18,11 +18,11 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 				"properties": {
 					"title": {
 						"type": "string",
-						"description": "Document title (e.g., 'Technical Manual for API Development')"
+						"description": "Document title"
 					},
 					"author": {
 						"type": "string",
-						"description": "Document author name (e.g., 'John Smith' or 'Engineering Team')"
+						"description": "Document author"
 					},
 					"type": {
 						"type": "string",
@@ -87,7 +87,7 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 								}
 							}
 						},
-						"description": "Style updates: font_family ('Times New Roman', 'Arial'), font_size ('12pt', '14pt'), line_spacing ('1.0', '1.5', '2.0'), margins with top/bottom/left/right (e.g., '1in', '2cm')"
+						"description": "Style updates: font_family, font_size, line_spacing, margins with top/bottom/left/right"
 					},
 					"pandoc_options": {
 						"type": "object",
@@ -97,7 +97,7 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 							"toc_depth": {"type": "integer"},
 							"citation_style": {"type": "string"}
 						},
-						"description": "Export settings: pdf_engine ('pdflatex', 'xelatex'), toc (true/false for table of contents), toc_depth (1-6), citation_style ('apa', 'chicago', 'mla')"
+						"description": "Export settings: pdf_engine, toc (table of contents), toc_depth, citation_style"
 					}
 				},
 				"required": ["document_id"]
@@ -115,7 +115,7 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					},
 					"title": {
 						"type": "string",
-						"description": "Chapter title (e.g., 'Introduction', 'Getting Started', 'Advanced Topics')"
+						"description": "Chapter title"
 					},
 					"position": {
 						"type": "integer",
@@ -162,7 +162,7 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					},
 					"title": {
 						"type": "string",
-						"description": "New chapter title (e.g., 'Advanced Configuration' to replace 'Basic Setup')"
+						"description": "New chapter title"
 					}
 				},
 				"required": ["document_id", "chapter_number", "title"]
@@ -228,11 +228,11 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					},
 					"title": {
 						"type": "string",
-						"description": "Section title (e.g., 'Overview', 'Key Concepts', 'Implementation Details')"
+						"description": "Section title"
 					},
 					"content": {
 						"type": "string",
-						"description": "Section content in markdown format. Supports headings (##, ###), paragraphs, lists (- item), code blocks (```), emphasis (*italic*, **bold**), links, etc."
+						"description": "Section content in markdown format. Supports headings, paragraphs, lists, code blocks, emphasis, links, etc."
 					},
 					"level": {
 						"type": "integer",
@@ -266,7 +266,7 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					},
 					"content": {
 						"type": "string",
-						"description": "New section content in markdown format"
+						"description": "New section content"
 					}
 				},
 				"required": ["document_id", "chapter_number", "section_number", "content"]
