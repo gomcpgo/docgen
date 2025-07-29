@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -24,6 +25,7 @@ var (
 func main() {
 	// Parse command line flags
 	testMode := flag.Bool("test", false, "Run integration tests with sample documents")
+	keepFiles := flag.Bool("keep-files", false, "Keep generated test files (only used with -test)")
 	versionFlag := flag.Bool("version", false, "Show version information")
 	flag.Parse()
 
@@ -35,7 +37,7 @@ func main() {
 	}
 
 	if *testMode {
-		runIntegrationTests()
+		runIntegrationTests(*keepFiles)
 		return
 	}
 
@@ -69,7 +71,7 @@ func main() {
 }
 
 // runIntegrationTests runs comprehensive integration tests
-func runIntegrationTests() {
+func runIntegrationTests(keepFiles bool) {
 	fmt.Println("Document Generation MCP Server - Integration Tests")
 	fmt.Println("==================================================")
 
@@ -78,7 +80,11 @@ func runIntegrationTests() {
 	if err != nil {
 		log.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	
+	// Only clean up if keepFiles is false
+	if !keepFiles {
+		defer os.RemoveAll(tempDir)
+	}
 
 	// Set test configuration
 	os.Setenv("DOCGEN_ROOT_DIR", tempDir)
@@ -99,6 +105,11 @@ func runIntegrationTests() {
 	runTestScenarios(docgenHandler, tempDir)
 
 	fmt.Println("\n✅ All integration tests completed successfully!")
+	
+	if keepFiles {
+		fmt.Printf("\n📁 Test files preserved in: %s\n", tempDir)
+		fmt.Println("   You can explore the generated documents and exported files.")
+	}
 }
 
 // runTestScenarios executes various test scenarios
@@ -175,8 +186,17 @@ func createSampleBook(h *docgenHandler.DocGenHandler) string {
 	}
 
 	// Parse response to get document ID
-	// For testing, we'll extract it from the JSON response
-	return "the-complete-guide-to-mcp-servers-" + fmt.Sprintf("%d", os.Getpid())
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(response.Content[0].Text), &result); err != nil {
+		log.Fatalf("Failed to parse create document response: %v", err)
+	}
+	
+	docID, ok := result["document_id"].(string)
+	if !ok {
+		log.Fatalf("Failed to extract document_id from response")
+	}
+	
+	return docID
 }
 
 // addSampleChapters adds sample chapters to a document
@@ -343,7 +363,18 @@ func createSampleReport(h *docgenHandler.DocGenHandler) string {
 		log.Fatalf("Error creating report: %s", response.Content[0].Text)
 	}
 
-	return "quarterly-performance-analysis-" + fmt.Sprintf("%d", os.Getpid())
+	// Parse response to get document ID
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(response.Content[0].Text), &result); err != nil {
+		log.Fatalf("Failed to parse create report response: %v", err)
+	}
+	
+	docID, ok := result["document_id"].(string)
+	if !ok {
+		log.Fatalf("Failed to extract document_id from report response")
+	}
+	
+	return docID
 }
 
 // getDocumentStructure retrieves and returns document structure
@@ -468,7 +499,7 @@ func testChapterManagement(h *docgenHandler.DocGenHandler, docID string) {
 	// Test getting a chapter
 	params := map[string]interface{}{
 		"document_id":    docID,
-		"chapter_number": 1,
+		"chapter_number": float64(1),
 	}
 
 	response, err := h.CallTool(nil, &protocol.CallToolRequest{
@@ -488,7 +519,7 @@ func testChapterManagement(h *docgenHandler.DocGenHandler, docID string) {
 	// Test updating chapter metadata
 	params = map[string]interface{}{
 		"document_id":    docID,
-		"chapter_number": 1,
+		"chapter_number": float64(1),
 		"title":          "Introduction to MCP (Updated)",
 	}
 
