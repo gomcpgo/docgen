@@ -42,6 +42,12 @@ type Storage interface {
 	// Chapter metadata operations
 	SaveChapterMetadata(documentID string, chapter *types.Chapter) error
 	LoadChapterMetadata(documentID string, chapterNumber int) (*types.Chapter, error)
+	
+	// Section file operations
+	SaveSectionContent(documentID string, chapterNumber int, sectionNumber types.SectionNumber, content string) error
+	LoadSectionContent(documentID string, chapterNumber int, sectionNumber types.SectionNumber) (string, error)
+	DeleteSectionFile(documentID string, chapterNumber int, sectionNumber types.SectionNumber) error
+	CreateSectionsDirectory(documentID string, chapterNumber int) error
 }
 
 // FileSystemStorage implements Storage using the local filesystem
@@ -159,6 +165,11 @@ func (fs *FileSystemStorage) CreateChapterStructure(documentID string, chapter *
 	// Create chapter directory
 	if err := os.MkdirAll(chapterPath, 0755); err != nil {
 		return fmt.Errorf("failed to create chapter directory: %w", err)
+	}
+
+	// Create sections subdirectory
+	if err := fs.CreateSectionsDirectory(documentID, int(chapter.Number)); err != nil {
+		return fmt.Errorf("failed to create sections directory: %w", err)
 	}
 
 	// Save chapter content
@@ -316,5 +327,48 @@ func (fs *FileSystemStorage) loadYAMLFile(filePath string, data interface{}) err
 		return fmt.Errorf("failed to decode YAML: %w", err)
 	}
 
+	return nil
+}
+
+// SaveSectionContent saves section content to individual section file
+func (fs *FileSystemStorage) SaveSectionContent(documentID string, chapterNumber int, sectionNumber types.SectionNumber, content string) error {
+	sectionPath := fs.config.SectionPath(documentID, chapterNumber, sectionNumber.String())
+	
+	// Ensure sections directory exists
+	if err := fs.CreateSectionsDirectory(documentID, chapterNumber); err != nil {
+		return fmt.Errorf("failed to create sections directory: %w", err)
+	}
+	
+	if err := os.WriteFile(sectionPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("failed to save section content: %w", err)
+	}
+	return nil
+}
+
+// LoadSectionContent loads section content from individual section file
+func (fs *FileSystemStorage) LoadSectionContent(documentID string, chapterNumber int, sectionNumber types.SectionNumber) (string, error) {
+	sectionPath := fs.config.SectionPath(documentID, chapterNumber, sectionNumber.String())
+	content, err := os.ReadFile(sectionPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to load section content: %w", err)
+	}
+	return string(content), nil
+}
+
+// DeleteSectionFile removes a section file
+func (fs *FileSystemStorage) DeleteSectionFile(documentID string, chapterNumber int, sectionNumber types.SectionNumber) error {
+	sectionPath := fs.config.SectionPath(documentID, chapterNumber, sectionNumber.String())
+	if err := os.Remove(sectionPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete section file: %w", err)
+	}
+	return nil
+}
+
+// CreateSectionsDirectory creates the sections subdirectory for a chapter
+func (fs *FileSystemStorage) CreateSectionsDirectory(documentID string, chapterNumber int) error {
+	sectionsDir := fs.config.SectionsPath(documentID, chapterNumber)
+	if err := os.MkdirAll(sectionsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create sections directory: %w", err)
+	}
 	return nil
 }

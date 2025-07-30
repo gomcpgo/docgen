@@ -58,7 +58,7 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 	}
 
 	// Export the document
-	outputPath, err := h.exporter.ExportDocument(string(docID), manifest, style, pandocConfig, options)
+	outputPath, err := h.exporter.ExportDocument(string(docID), manifest, style, pandocConfig, options, h.manager.RebuildChapterMarkdown)
 	if err != nil {
 		return h.errorResponse(fmt.Sprintf("Failed to export document: %v", err))
 	}
@@ -98,7 +98,7 @@ func (h *DocGenHandler) handlePreviewChapter(params map[string]interface{}) (*pr
 	}
 
 	// Preview the chapter
-	previewPath, err := h.exporter.PreviewChapter(string(docID), chapterNum, types.ExportFormat(format))
+	previewPath, err := h.exporter.PreviewChapter(string(docID), chapterNum, types.ExportFormat(format), h.manager.RebuildChapterMarkdown)
 	if err != nil {
 		return h.errorResponse(fmt.Sprintf("Failed to preview chapter: %v", err))
 	}

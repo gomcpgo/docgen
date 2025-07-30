@@ -25,8 +25,20 @@ func NewExporter(cfg *config.Config) *Exporter {
 	}
 }
 
+// ChapterRebuildFunc defines a function that rebuilds chapter markdown from sections
+type ChapterRebuildFunc func(docID types.DocumentID, chapterNum types.ChapterNumber) error
+
 // ExportDocument exports a document to the specified format
-func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions) (string, error) {
+func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions, rebuildFunc ChapterRebuildFunc) (string, error) {
+	// Rebuild all chapter markdown files from section files to ensure they're current
+	if rebuildFunc != nil {
+		for _, chapter := range manifest.Document.Chapters {
+			if err := rebuildFunc(types.DocumentID(documentID), chapter.Number); err != nil {
+				return "", fmt.Errorf("failed to rebuild chapter %d markdown: %w", chapter.Number, err)
+			}
+		}
+	}
+
 	// Validate document first
 	report := e.ValidateDocument(documentID, manifest)
 	if !report.Valid {
@@ -225,7 +237,14 @@ func (e *Exporter) ValidateDocument(documentID string, manifest *types.Manifest)
 }
 
 // PreviewChapter generates a preview of a single chapter
-func (e *Exporter) PreviewChapter(documentID string, chapterNum types.ChapterNumber, format types.ExportFormat) (string, error) {
+func (e *Exporter) PreviewChapter(documentID string, chapterNum types.ChapterNumber, format types.ExportFormat, rebuildFunc ChapterRebuildFunc) (string, error) {
+	// Rebuild chapter markdown from section files to ensure it's current
+	if rebuildFunc != nil {
+		if err := rebuildFunc(types.DocumentID(documentID), chapterNum); err != nil {
+			return "", fmt.Errorf("failed to rebuild chapter %d markdown: %w", chapterNum, err)
+		}
+	}
+
 	// Create a minimal manifest with just one chapter
 	chapterContent, err := e.loadChapterContent(documentID, int(chapterNum))
 	if err != nil {

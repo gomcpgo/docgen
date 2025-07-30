@@ -388,7 +388,13 @@ func (m *Manager) AddSection(docID types.DocumentID, chapterNum types.ChapterNum
 		UpdatedAt: now,
 	}
 
-	// Add section to chapter
+	// Save section content to individual file
+	if err := m.storage.SaveSectionContent(string(docID), int(chapterNum), sectionNum, content); err != nil {
+		return nil, fmt.Errorf("failed to save section content: %w", err)
+	}
+
+	// Add section to chapter metadata (without content)
+	section.Content = "" // Don't store content in metadata
 	chapter.Sections = append(chapter.Sections, section)
 	chapter.UpdatedAt = now
 
@@ -397,37 +403,82 @@ func (m *Manager) AddSection(docID types.DocumentID, chapterNum types.ChapterNum
 		return nil, fmt.Errorf("failed to save chapter metadata: %w", err)
 	}
 
+	// Rebuild chapter.md from all section files
+	if err := m.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		return nil, fmt.Errorf("failed to rebuild chapter markdown: %w", err)
+	}
+
 	return sectionNum, nil
 }
 
 // generateNextSectionNumber generates the next section number for the given level
 func (m *Manager) generateNextSectionNumber(chapter *types.Chapter, level int) (types.SectionNumber, error) {
-	// Find the highest section number at the specified level
-	var maxNumbers = make([]int, level)
 	chapterNum := int(chapter.Number)
-
-	for _, section := range chapter.Sections {
-		parts := []int(section.Number)
-		if len(parts) >= level {
-			// Only consider sections at the same depth or deeper
-			for i := 0; i < level && i < len(parts); i++ {
-				if parts[i] > maxNumbers[i] {
-					maxNumbers[i] = parts[i]
+	targetLength := level + 1 // chapter number + level parts
+	
+	// Build section number: [chapter, level1, level2, ...]
+	sectionNum := make([]int, targetLength)
+	sectionNum[0] = chapterNum
+	
+	if level == 1 {
+		// For level 1, just find the max existing level-1 section and increment
+		maxAtLevel := 0
+		for _, section := range chapter.Sections {
+			parts := []int(section.Number)
+			if len(parts) == 2 && parts[0] == chapterNum {
+				if parts[1] > maxAtLevel {
+					maxAtLevel = parts[1]
 				}
 			}
 		}
+		sectionNum[1] = maxAtLevel + 1
+	} else {
+		// For nested levels, find the parent hierarchy
+		// Start by finding the latest parent at each level
+		for parentLevel := 1; parentLevel < level; parentLevel++ {
+			// Find the most recent section at exactly parentLevel
+			latestAtLevel := 0
+			for _, section := range chapter.Sections {
+				parts := []int(section.Number)
+				if len(parts) == parentLevel+1 && parts[0] == chapterNum {
+					// Check if this is later than what we have
+					if parts[parentLevel] > latestAtLevel {
+						latestAtLevel = parts[parentLevel]
+					}
+				}
+			}
+			if latestAtLevel > 0 {
+				sectionNum[parentLevel] = latestAtLevel
+			} else {
+				sectionNum[parentLevel] = 1
+			}
+		}
+		
+		// Now find the max subsection under the specific parent we just determined
+		parentPrefix := sectionNum[:level] // [chapter, parent1, parent2, ...]
+		maxAtLevel := 0
+		
+		for _, section := range chapter.Sections {
+			parts := []int(section.Number)
+			if len(parts) == targetLength && parts[0] == chapterNum {
+				// Check if this section is under our parent
+				isUnderParent := true
+				for i := 1; i < level; i++ {
+					if parts[i] != parentPrefix[i] {
+						isUnderParent = false
+						break
+					}
+				}
+				
+				if isUnderParent && parts[level] > maxAtLevel {
+					maxAtLevel = parts[level]
+				}
+			}
+		}
+		
+		sectionNum[level] = maxAtLevel + 1
 	}
-
-	// Increment the last level
-	maxNumbers[level-1]++
-
-	// Build section number: [chapter, level1, level2, ...]
-	sectionNum := make([]int, level+1)
-	sectionNum[0] = chapterNum
-	for i := 0; i < level; i++ {
-		sectionNum[i+1] = maxNumbers[i]
-	}
-
+	
 	return types.SectionNumber(sectionNum), nil
 }
 
@@ -446,11 +497,16 @@ func (m *Manager) UpdateSection(docID types.DocumentID, chapterNum types.Chapter
 		return fmt.Errorf("failed to load chapter: %w", err)
 	}
 
-	// Find and update the section
+	// Find the section to verify it exists
 	found := false
 	for i, section := range chapter.Sections {
 		if m.sectionNumbersEqual(section.Number, sectionNum) {
-			chapter.Sections[i].Content = content
+			// Update section content in individual file
+			if err := m.storage.SaveSectionContent(string(docID), int(chapterNum), sectionNum, content); err != nil {
+				return fmt.Errorf("failed to save section content: %w", err)
+			}
+			
+			// Update metadata timestamps
 			chapter.Sections[i].UpdatedAt = time.Now()
 			chapter.UpdatedAt = time.Now()
 			found = true
@@ -465,6 +521,11 @@ func (m *Manager) UpdateSection(docID types.DocumentID, chapterNum types.Chapter
 	// Save updated chapter metadata
 	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
 		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Rebuild chapter.md from all section files
+	if err := m.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		return fmt.Errorf("failed to rebuild chapter markdown: %w", err)
 	}
 
 	return nil
@@ -499,7 +560,12 @@ func (m *Manager) DeleteSection(docID types.DocumentID, chapterNum types.Chapter
 	found := false
 	for i, section := range chapter.Sections {
 		if m.sectionNumbersEqual(section.Number, sectionNum) {
-			// Remove the section
+			// Delete the section file
+			if err := m.storage.DeleteSectionFile(string(docID), int(chapterNum), sectionNum); err != nil {
+				return fmt.Errorf("failed to delete section file: %w", err)
+			}
+			
+			// Remove the section from metadata
 			chapter.Sections = append(chapter.Sections[:i], chapter.Sections[i+1:]...)
 			chapter.UpdatedAt = time.Now()
 			found = true
@@ -517,6 +583,11 @@ func (m *Manager) DeleteSection(docID types.DocumentID, chapterNum types.Chapter
 	// Save updated chapter metadata
 	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
 		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Rebuild chapter.md from all section files
+	if err := m.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		return fmt.Errorf("failed to rebuild chapter markdown: %w", err)
 	}
 
 	return nil
@@ -783,6 +854,50 @@ func (m *Manager) parseFigureIDChapter(figureID types.FigureID) (types.ChapterNu
 	}
 
 	return types.ChapterNumber(chapterNum), nil
+}
+
+// RebuildChapterMarkdown compiles all section files into chapter.md
+func (m *Manager) RebuildChapterMarkdown(docID types.DocumentID, chapterNum types.ChapterNumber) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	// Load chapter metadata to get section order
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to load chapter metadata: %w", err)
+	}
+
+	// Build chapter markdown content
+	var content strings.Builder
+	
+	// Add chapter title as main heading
+	content.WriteString(fmt.Sprintf("# Chapter %d: %s\n\n", chapterNum, chapter.Title))
+	
+	// Process sections in order
+	for _, section := range chapter.Sections {
+		// Load section content
+		sectionContent, err := m.storage.LoadSectionContent(string(docID), int(chapterNum), section.Number)
+		if err != nil {
+			// If section file doesn't exist, skip it but log the issue
+			continue
+		}
+		
+		// Generate markdown header based on section level
+		headerLevel := strings.Repeat("#", section.Level+1) // +1 because chapter is already #
+		content.WriteString(fmt.Sprintf("%s %s %s\n\n", headerLevel, section.Number.String(), section.Title))
+		
+		// Add section content
+		content.WriteString(sectionContent)
+		content.WriteString("\n\n")
+	}
+	
+	// Save compiled content to chapter.md
+	if err := m.storage.SaveChapterContent(string(docID), int(chapterNum), content.String()); err != nil {
+		return fmt.Errorf("failed to save compiled chapter content: %w", err)
+	}
+	
+	return nil
 }
 
 // checkDocumentLimit checks if the document count is within limits
