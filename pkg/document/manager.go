@@ -349,6 +349,87 @@ func (m *Manager) ConfigureDocument(docID types.DocumentID, styleUpdates *types.
 	return nil
 }
 
+// AddSection adds a new section to a chapter
+func (m *Manager) AddSection(docID types.DocumentID, chapterNum types.ChapterNumber, title, content string, level int) (types.SectionNumber, error) {
+	if err := docID.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid document ID: %w", err)
+	}
+	if title == "" {
+		return nil, fmt.Errorf("section title is required")
+	}
+	if content == "" {
+		return nil, fmt.Errorf("section content is required")
+	}
+	if level < 1 || level > 6 {
+		return nil, fmt.Errorf("section level must be between 1 and 6")
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chapter: %w", err)
+	}
+
+	// Generate next section number
+	sectionNum, err := m.generateNextSectionNumber(chapter, level)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate section number: %w", err)
+	}
+
+	// Create new section
+	now := time.Now()
+	section := types.Section{
+		Number:    sectionNum,
+		Title:     title,
+		Content:   content,
+		Level:     level,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// Add section to chapter
+	chapter.Sections = append(chapter.Sections, section)
+	chapter.UpdatedAt = now
+
+	// Save updated chapter metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return nil, fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	return sectionNum, nil
+}
+
+// generateNextSectionNumber generates the next section number for the given level
+func (m *Manager) generateNextSectionNumber(chapter *types.Chapter, level int) (types.SectionNumber, error) {
+	// Find the highest section number at the specified level
+	var maxNumbers = make([]int, level)
+	chapterNum := int(chapter.Number)
+
+	for _, section := range chapter.Sections {
+		parts := []int(section.Number)
+		if len(parts) >= level {
+			// Only consider sections at the same depth or deeper
+			for i := 0; i < level && i < len(parts); i++ {
+				if parts[i] > maxNumbers[i] {
+					maxNumbers[i] = parts[i]
+				}
+			}
+		}
+	}
+
+	// Increment the last level
+	maxNumbers[level-1]++
+
+	// Build section number: [chapter, level1, level2, ...]
+	sectionNum := make([]int, level+1)
+	sectionNum[0] = chapterNum
+	for i := 0; i < level; i++ {
+		sectionNum[i+1] = maxNumbers[i]
+	}
+
+	return types.SectionNumber(sectionNum), nil
+}
+
 // checkDocumentLimit checks if the document count is within limits
 func (m *Manager) checkDocumentLimit() error {
 	docs, err := m.storage.ListDocuments()

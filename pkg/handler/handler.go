@@ -423,7 +423,49 @@ func (h *DocGenHandler) handleMoveChapter(params map[string]interface{}) (*proto
 }
 
 func (h *DocGenHandler) handleAddSection(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("add_section tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get chapter number
+	chapterNum, err := h.getChapterNumber(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid chapter_number: %v", err))
+	}
+
+	// Get section title
+	title, ok := params["title"].(string)
+	if !ok || title == "" {
+		return h.errorResponse("title parameter is required")
+	}
+
+	// Get section content
+	content, ok := params["content"].(string)
+	if !ok || content == "" {
+		return h.errorResponse("content parameter is required")
+	}
+
+	// Get level (optional, defaults to 1)
+	level := 1
+	if levelFloat, ok := params["level"].(float64); ok {
+		level = int(levelFloat)
+		if level < 1 || level > 6 {
+			return h.errorResponse("level must be between 1 and 6")
+		}
+	}
+
+	// Add the section
+	sectionNum, err := h.manager.AddSection(docID, chapterNum, title, content, level)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to add section: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"section_number": sectionNum.String(),
+		"message":        fmt.Sprintf("Section '%s' added successfully to chapter %d", title, chapterNum),
+	})
 }
 
 func (h *DocGenHandler) handleUpdateSection(params map[string]interface{}) (*protocol.CallToolResponse, error) {

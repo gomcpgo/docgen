@@ -128,6 +128,11 @@ func (fs *FileSystemStorage) DeleteDocument(documentID string) error {
 
 // ListDocuments returns a list of all document IDs
 func (fs *FileSystemStorage) ListDocuments() ([]string, error) {
+	// Create root directory if it doesn't exist
+	if err := os.MkdirAll(fs.config.RootDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create root directory: %w", err)
+	}
+
 	entries, err := os.ReadDir(fs.config.RootDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list documents: %w", err)
