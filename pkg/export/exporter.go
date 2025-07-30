@@ -3,9 +3,11 @@ package export
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,8 +27,20 @@ func NewExporter(cfg *config.Config) *Exporter {
 	}
 }
 
+// ChapterRebuildFunc defines a function that rebuilds chapter markdown from sections
+type ChapterRebuildFunc func(docID types.DocumentID, chapterNum types.ChapterNumber) error
+
 // ExportDocument exports a document to the specified format
-func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions) (string, error) {
+func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions, rebuildFunc ChapterRebuildFunc) (string, error) {
+	// Rebuild all chapter markdown files from section files to ensure they're current
+	if rebuildFunc != nil {
+		for _, chapter := range manifest.Document.Chapters {
+			if err := rebuildFunc(types.DocumentID(documentID), chapter.Number); err != nil {
+				return "", fmt.Errorf("failed to rebuild chapter %d markdown: %w", chapter.Number, err)
+			}
+		}
+	}
+
 	// Validate document first
 	report := e.ValidateDocument(documentID, manifest)
 	if !report.Valid {
@@ -55,14 +69,34 @@ func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, s
 	// Generate pandoc command
 	cmd := e.GeneratePandocCommand(documentID, tempInputFile, outputFile, manifest, style, pandocConfig, options)
 
+	// Command is ready for execution
+
 	// Execute pandoc command with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.ExportTimeout)
 	defer cancel()
+
+	// Capture stderr for better error reporting
+	cmd.Stderr = nil // We'll capture it manually
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
 	cmd.SysProcAttr = nil // Ensure clean execution
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("failed to start pandoc: %w", err)
 	}
+
+	// Read stderr in background
+	stderrCh := make(chan string, 1)
+	go func() {
+		stderrBytes, err := io.ReadAll(stderrPipe)
+		if err == nil {
+			stderrCh <- string(stderrBytes)
+		} else {
+			stderrCh <- ""
+		}
+	}()
 
 	// Wait for completion with timeout
 	done := make(chan error, 1)
@@ -72,7 +106,11 @@ func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, s
 
 	select {
 	case err := <-done:
+		stderr := <-stderrCh
 		if err != nil {
+			if stderr != "" {
+				return "", fmt.Errorf("pandoc execution failed: %w. Stderr: %s", err, stderr)
+			}
 			return "", fmt.Errorf("pandoc execution failed: %w", err)
 		}
 	case <-ctx.Done():
@@ -178,7 +216,14 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 		args = append(args, "-V", fmt.Sprintf("%s=%s", key, value))
 	}
 
-	return exec.Command(e.config.PandocPath, args...)
+	// Resolve pandoc path
+	pandocPath, err := findPandocPath(e.config.PandocPath)
+	if err != nil {
+		// This should have been caught in validation, but handle gracefully
+		pandocPath = e.config.PandocPath
+	}
+
+	return exec.Command(pandocPath, args...)
 }
 
 // ValidateDocument validates that a document is ready for export
@@ -206,8 +251,9 @@ func (e *Exporter) ValidateDocument(documentID string, manifest *types.Manifest)
 	}
 
 	// Check pandoc availability
-	if _, err := exec.LookPath(e.config.PandocPath); err != nil {
-		report.Errors = append(report.Errors, fmt.Sprintf("Pandoc not found at path: %s", e.config.PandocPath))
+	_, err := findPandocPath(e.config.PandocPath)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
 		report.Valid = false
 	}
 
@@ -225,7 +271,14 @@ func (e *Exporter) ValidateDocument(documentID string, manifest *types.Manifest)
 }
 
 // PreviewChapter generates a preview of a single chapter
-func (e *Exporter) PreviewChapter(documentID string, chapterNum types.ChapterNumber, format types.ExportFormat) (string, error) {
+func (e *Exporter) PreviewChapter(documentID string, chapterNum types.ChapterNumber, format types.ExportFormat, rebuildFunc ChapterRebuildFunc) (string, error) {
+	// Rebuild chapter markdown from section files to ensure it's current
+	if rebuildFunc != nil {
+		if err := rebuildFunc(types.DocumentID(documentID), chapterNum); err != nil {
+			return "", fmt.Errorf("failed to rebuild chapter %d markdown: %w", chapterNum, err)
+		}
+	}
+
 	// Create a minimal manifest with just one chapter
 	chapterContent, err := e.loadChapterContent(documentID, int(chapterNum))
 	if err != nil {
@@ -256,7 +309,13 @@ func (e *Exporter) PreviewChapter(documentID string, chapterNum types.ChapterNum
 		args = append(args, "--pdf-engine", "pdflatex")
 	}
 
-	cmd := exec.Command(e.config.PandocPath, args...)
+	// Resolve pandoc path
+	pandocPath, err := findPandocPath(e.config.PandocPath)
+	if err != nil {
+		return "", fmt.Errorf("pandoc not found: %w", err)
+	}
+
+	cmd := exec.Command(pandocPath, args...)
 
 	// Execute with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.ExportTimeout)
@@ -289,9 +348,9 @@ func (e *Exporter) loadChapterContent(documentID string, chapterNumber int) (str
 func generateYAMLMetadata(doc *types.Document, style *types.Style) string {
 	var yaml strings.Builder
 
-	yaml.WriteString(fmt.Sprintf("title: %s\n", doc.Title))
-	yaml.WriteString(fmt.Sprintf("author: %s\n", doc.Author))
-	yaml.WriteString(fmt.Sprintf("date: %s\n", time.Now().Format("2006-01-02")))
+	yaml.WriteString(fmt.Sprintf("title: %q\n", doc.Title))
+	yaml.WriteString(fmt.Sprintf("author: %q\n", doc.Author))
+	yaml.WriteString(fmt.Sprintf("date: %q\n", time.Now().Format("2006-01-02")))
 
 	// Document class based on type
 	switch doc.Type {
@@ -307,12 +366,47 @@ func generateYAMLMetadata(doc *types.Document, style *types.Style) string {
 
 	// Add style information if provided
 	if style != nil {
-		yaml.WriteString(fmt.Sprintf("fontsize: %s\n", style.FontSize))
-		yaml.WriteString(fmt.Sprintf("fontfamily: %s\n", style.FontFamily))
+		yaml.WriteString(fmt.Sprintf("fontsize: %q\n", style.FontSize))
+		yaml.WriteString(fmt.Sprintf("fontfamily: %q\n", style.FontFamily))
 		if style.Margins.Top != "" {
-			yaml.WriteString(fmt.Sprintf("geometry: margin=%s\n", style.Margins.Top))
+			yaml.WriteString(fmt.Sprintf("geometry: %q\n", fmt.Sprintf("margin=%s", style.Margins.Top)))
 		}
 	}
 
 	return yaml.String()
+}
+
+// findPandocPath finds the pandoc executable using system commands
+func findPandocPath(configPath string) (string, error) {
+	// If config path is an absolute path, use it directly
+	if filepath.IsAbs(configPath) {
+		if _, err := os.Stat(configPath); err == nil {
+			return configPath, nil
+		}
+		return "", fmt.Errorf("pandoc not found at configured path: %s", configPath)
+	}
+
+	// Use system command to find pandoc in PATH
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("where", configPath)
+	} else {
+		cmd = exec.Command("which", configPath)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("pandoc not found in PATH. Please install pandoc or set PANDOC_PATH environment variable")
+	}
+
+	path := strings.TrimSpace(string(output))
+	// On Windows, 'where' might return multiple paths, take the first one
+	if runtime.GOOS == "windows" {
+		lines := strings.Split(path, "\n")
+		if len(lines) > 0 {
+			path = strings.TrimSpace(lines[0])
+		}
+	}
+
+	return path, nil
 }

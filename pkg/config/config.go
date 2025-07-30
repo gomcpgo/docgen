@@ -170,3 +170,13 @@ func (c *Config) ExportPath(documentID, format string) string {
 	filename := fmt.Sprintf("%s.%s", documentID, format)
 	return filepath.Join(c.ExportsDir, filename)
 }
+
+// SectionsPath returns the full path to a chapter's sections directory
+func (c *Config) SectionsPath(documentID string, chapterNumber int) string {
+	return filepath.Join(c.ChapterPath(documentID, chapterNumber), "sections")
+}
+
+// SectionPath returns the full path to a specific section file
+func (c *Config) SectionPath(documentID string, chapterNumber int, sectionNumber string) string {
+	return filepath.Join(c.SectionsPath(documentID, chapterNumber), fmt.Sprintf("%s.md", sectionNumber))
+}

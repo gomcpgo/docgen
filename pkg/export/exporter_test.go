@@ -220,11 +220,11 @@ func TestGenerateYAMLMetadata(t *testing.T) {
 
 	yaml := generateYAMLMetadata(doc, style)
 
-	if !strings.Contains(yaml, "title: Test Document") {
+	if !strings.Contains(yaml, `title: "Test Document"`) {
 		t.Errorf("YAML should contain document title")
 	}
 
-	if !strings.Contains(yaml, "author: Test Author") {
+	if !strings.Contains(yaml, `author: "Test Author"`) {
 		t.Errorf("YAML should contain document author")
 	}
 

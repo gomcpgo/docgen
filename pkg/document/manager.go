@@ -3,6 +3,7 @@ package document
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -346,6 +347,556 @@ func (m *Manager) ConfigureDocument(docID types.DocumentID, styleUpdates *types.
 		}
 	}
 
+	return nil
+}
+
+// AddSection adds a new section to a chapter
+func (m *Manager) AddSection(docID types.DocumentID, chapterNum types.ChapterNumber, title, content string, level int) (types.SectionNumber, error) {
+	if err := docID.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid document ID: %w", err)
+	}
+	if title == "" {
+		return nil, fmt.Errorf("section title is required")
+	}
+	if content == "" {
+		return nil, fmt.Errorf("section content is required")
+	}
+	if level < 1 || level > 6 {
+		return nil, fmt.Errorf("section level must be between 1 and 6")
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return nil, fmt.Errorf("failed to load chapter: %w", err)
+	}
+
+	// Generate next section number
+	sectionNum, err := m.generateNextSectionNumber(chapter, level)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate section number: %w", err)
+	}
+
+	// Create new section
+	now := time.Now()
+	section := types.Section{
+		Number:    sectionNum,
+		Title:     title,
+		Content:   content,
+		Level:     level,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// Save section content to individual file
+	if err := m.storage.SaveSectionContent(string(docID), int(chapterNum), sectionNum, content); err != nil {
+		return nil, fmt.Errorf("failed to save section content: %w", err)
+	}
+
+	// Add section to chapter metadata (without content)
+	section.Content = "" // Don't store content in metadata
+	chapter.Sections = append(chapter.Sections, section)
+	chapter.UpdatedAt = now
+
+	// Save updated chapter metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return nil, fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Rebuild chapter.md from all section files
+	if err := m.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		return nil, fmt.Errorf("failed to rebuild chapter markdown: %w", err)
+	}
+
+	return sectionNum, nil
+}
+
+// generateNextSectionNumber generates the next section number for the given level
+func (m *Manager) generateNextSectionNumber(chapter *types.Chapter, level int) (types.SectionNumber, error) {
+	chapterNum := int(chapter.Number)
+	targetLength := level + 1 // chapter number + level parts
+	
+	// Build section number: [chapter, level1, level2, ...]
+	sectionNum := make([]int, targetLength)
+	sectionNum[0] = chapterNum
+	
+	if level == 1 {
+		// For level 1, just find the max existing level-1 section and increment
+		maxAtLevel := 0
+		for _, section := range chapter.Sections {
+			parts := []int(section.Number)
+			if len(parts) == 2 && parts[0] == chapterNum {
+				if parts[1] > maxAtLevel {
+					maxAtLevel = parts[1]
+				}
+			}
+		}
+		sectionNum[1] = maxAtLevel + 1
+	} else {
+		// For nested levels, find the parent hierarchy
+		// Start by finding the latest parent at each level
+		for parentLevel := 1; parentLevel < level; parentLevel++ {
+			// Find the most recent section at exactly parentLevel
+			latestAtLevel := 0
+			for _, section := range chapter.Sections {
+				parts := []int(section.Number)
+				if len(parts) == parentLevel+1 && parts[0] == chapterNum {
+					// Check if this is later than what we have
+					if parts[parentLevel] > latestAtLevel {
+						latestAtLevel = parts[parentLevel]
+					}
+				}
+			}
+			if latestAtLevel > 0 {
+				sectionNum[parentLevel] = latestAtLevel
+			} else {
+				sectionNum[parentLevel] = 1
+			}
+		}
+		
+		// Now find the max subsection under the specific parent we just determined
+		parentPrefix := sectionNum[:level] // [chapter, parent1, parent2, ...]
+		maxAtLevel := 0
+		
+		for _, section := range chapter.Sections {
+			parts := []int(section.Number)
+			if len(parts) == targetLength && parts[0] == chapterNum {
+				// Check if this section is under our parent
+				isUnderParent := true
+				for i := 1; i < level; i++ {
+					if parts[i] != parentPrefix[i] {
+						isUnderParent = false
+						break
+					}
+				}
+				
+				if isUnderParent && parts[level] > maxAtLevel {
+					maxAtLevel = parts[level]
+				}
+			}
+		}
+		
+		sectionNum[level] = maxAtLevel + 1
+	}
+	
+	return types.SectionNumber(sectionNum), nil
+}
+
+// UpdateSection updates the content of an existing section
+func (m *Manager) UpdateSection(docID types.DocumentID, chapterNum types.ChapterNumber, sectionNum types.SectionNumber, content string) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+	if content == "" {
+		return fmt.Errorf("section content is required")
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to load chapter: %w", err)
+	}
+
+	// Find the section to verify it exists
+	found := false
+	for i, section := range chapter.Sections {
+		if m.sectionNumbersEqual(section.Number, sectionNum) {
+			// Update section content in individual file
+			if err := m.storage.SaveSectionContent(string(docID), int(chapterNum), sectionNum, content); err != nil {
+				return fmt.Errorf("failed to save section content: %w", err)
+			}
+			
+			// Update metadata timestamps
+			chapter.Sections[i].UpdatedAt = time.Now()
+			chapter.UpdatedAt = time.Now()
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("section %s not found in chapter %d", sectionNum.String(), chapterNum)
+	}
+
+	// Save updated chapter metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Rebuild chapter.md from all section files
+	if err := m.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		return fmt.Errorf("failed to rebuild chapter markdown: %w", err)
+	}
+
+	return nil
+}
+
+// sectionNumbersEqual compares two section numbers for equality
+func (m *Manager) sectionNumbersEqual(a, b types.SectionNumber) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, val := range a {
+		if val != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// DeleteSection removes a section from a chapter
+func (m *Manager) DeleteSection(docID types.DocumentID, chapterNum types.ChapterNumber, sectionNum types.SectionNumber) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to load chapter: %w", err)
+	}
+
+	// Find and remove the section
+	found := false
+	for i, section := range chapter.Sections {
+		if m.sectionNumbersEqual(section.Number, sectionNum) {
+			// Delete the section file
+			if err := m.storage.DeleteSectionFile(string(docID), int(chapterNum), sectionNum); err != nil {
+				return fmt.Errorf("failed to delete section file: %w", err)
+			}
+			
+			// Remove the section from metadata
+			chapter.Sections = append(chapter.Sections[:i], chapter.Sections[i+1:]...)
+			chapter.UpdatedAt = time.Now()
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("section %s not found in chapter %d", sectionNum.String(), chapterNum)
+	}
+
+	// Renumber sections if needed (sections with same level and deeper)
+	m.renumberSectionsAfterDeletion(chapter, sectionNum)
+
+	// Save updated chapter metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Rebuild chapter.md from all section files
+	if err := m.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		return fmt.Errorf("failed to rebuild chapter markdown: %w", err)
+	}
+
+	return nil
+}
+
+// renumberSectionsAfterDeletion renumbers sections after a deletion
+func (m *Manager) renumberSectionsAfterDeletion(chapter *types.Chapter, deletedSectionNum types.SectionNumber) {
+	if len(deletedSectionNum) < 2 {
+		return // Invalid section number
+	}
+
+	deletedLevel := len(deletedSectionNum) - 1
+	chapterNum := deletedSectionNum[0]
+
+	for i := range chapter.Sections {
+		section := &chapter.Sections[i]
+		if len(section.Number) > deletedLevel && section.Number[0] == chapterNum {
+			// Check if this section needs renumbering
+			shouldRenumber := true
+			for j := 1; j < deletedLevel; j++ {
+				if j >= len(section.Number) || section.Number[j] != deletedSectionNum[j] {
+					shouldRenumber = false
+					break
+				}
+			}
+
+			if shouldRenumber && len(section.Number) > deletedLevel {
+				if section.Number[deletedLevel] > deletedSectionNum[deletedLevel] {
+					// Decrement this level
+					section.Number[deletedLevel]--
+				}
+			}
+		}
+	}
+}
+
+// MoveChapter moves a chapter from one position to another and renumbers accordingly
+func (m *Manager) MoveChapter(docID types.DocumentID, fromPos, toPos types.ChapterNumber) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	// Load the document manifest
+	manifest, err := m.storage.LoadManifest(string(docID))
+	if err != nil {
+		return fmt.Errorf("failed to load document manifest: %w", err)
+	}
+
+	// Validate positions
+	if int(fromPos) > len(manifest.Document.Chapters) || int(toPos) > len(manifest.Document.Chapters) {
+		return fmt.Errorf("invalid position: document has %d chapters", len(manifest.Document.Chapters))
+	}
+
+	// Convert to 0-based indexing
+	fromIdx := int(fromPos) - 1
+	toIdx := int(toPos) - 1
+
+	if fromIdx == toIdx {
+		return nil // No movement needed
+	}
+
+	// Store the chapter to move
+	chapterToMove := manifest.Document.Chapters[fromIdx]
+
+	// Remove the chapter from its current position
+	manifest.Document.Chapters = append(manifest.Document.Chapters[:fromIdx], manifest.Document.Chapters[fromIdx+1:]...)
+
+	// Insert the chapter at the new position
+	if toIdx >= len(manifest.Document.Chapters) {
+		// Insert at the end
+		manifest.Document.Chapters = append(manifest.Document.Chapters, chapterToMove)
+	} else {
+		// Insert at the specified position
+		manifest.Document.Chapters = append(manifest.Document.Chapters[:toIdx], append([]types.Chapter{chapterToMove}, manifest.Document.Chapters[toIdx:]...)...)
+	}
+
+	// Renumber all chapters and update filesystem
+	// For move operation, we need to renumber all chapters from position 1
+	if err := m.renumberChapters(string(docID), manifest, 0, 0); err != nil {
+		return fmt.Errorf("failed to renumber chapters: %w", err)
+	}
+
+	// Update manifest
+	manifest.UpdatedAt = time.Now()
+	if err := m.storage.SaveManifest(string(docID), manifest); err != nil {
+		return fmt.Errorf("failed to save manifest: %w", err)
+	}
+
+	return nil
+}
+
+// AddImage adds a new image figure to a chapter
+func (m *Manager) AddImage(docID types.DocumentID, chapterNum types.ChapterNumber, imagePath, caption, position string) (types.FigureID, error) {
+	if err := docID.Validate(); err != nil {
+		return "", fmt.Errorf("invalid document ID: %w", err)
+	}
+	if imagePath == "" {
+		return "", fmt.Errorf("image path is required")
+	}
+	if caption == "" {
+		return "", fmt.Errorf("caption is required")
+	}
+
+	// Validate position
+	validPositions := map[string]bool{
+		"here": true, "top": true, "bottom": true, "page": true, "float": true,
+	}
+	if !validPositions[position] {
+		return "", fmt.Errorf("invalid position: %s (must be one of: here, top, bottom, page, float)", position)
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return "", fmt.Errorf("failed to load chapter: %w", err)
+	}
+
+	// Generate next figure sequence number for this chapter
+	sequence := len(chapter.Figures) + 1
+
+	// Generate figure ID
+	figureID := types.FigureID(fmt.Sprintf("fig-%d.%d", chapterNum, sequence))
+
+	// Create new figure
+	now := time.Now()
+	figure := types.Figure{
+		ID:        figureID,
+		Chapter:   chapterNum,
+		Sequence:  sequence,
+		Caption:   caption,
+		ImagePath: imagePath,
+		Position:  types.ImagePosition(position),
+		Alignment: types.AlignCenter, // Default alignment
+		Width:     "",                // Will be determined automatically
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	// Add figure to chapter
+	chapter.Figures = append(chapter.Figures, figure)
+	chapter.UpdatedAt = now
+
+	// Save updated chapter metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return "", fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	return figureID, nil
+}
+
+// UpdateImageCaption updates the caption of an existing image figure
+func (m *Manager) UpdateImageCaption(docID types.DocumentID, figureID types.FigureID, newCaption string) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+	if newCaption == "" {
+		return fmt.Errorf("caption is required")
+	}
+
+	// Parse figure ID to get chapter number
+	chapterNum, err := m.parseFigureIDChapter(figureID)
+	if err != nil {
+		return fmt.Errorf("invalid figure ID: %w", err)
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to load chapter: %w", err)
+	}
+
+	// Find and update the figure
+	found := false
+	for i, figure := range chapter.Figures {
+		if figure.ID == figureID {
+			chapter.Figures[i].Caption = newCaption
+			chapter.Figures[i].UpdatedAt = time.Now()
+			chapter.UpdatedAt = time.Now()
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("figure %s not found", figureID)
+	}
+
+	// Save updated chapter metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	return nil
+}
+
+// DeleteImage removes an image figure and renumbers subsequent figures in the chapter
+func (m *Manager) DeleteImage(docID types.DocumentID, figureID types.FigureID) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	// Parse figure ID to get chapter number
+	chapterNum, err := m.parseFigureIDChapter(figureID)
+	if err != nil {
+		return fmt.Errorf("invalid figure ID: %w", err)
+	}
+
+	// Load current chapter
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to load chapter: %w", err)
+	}
+
+	// Find and remove the figure
+	found := false
+	deletedSequence := 0
+	for i, figure := range chapter.Figures {
+		if figure.ID == figureID {
+			deletedSequence = figure.Sequence
+			// Remove the figure
+			chapter.Figures = append(chapter.Figures[:i], chapter.Figures[i+1:]...)
+			chapter.UpdatedAt = time.Now()
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("figure %s not found", figureID)
+	}
+
+	// Renumber subsequent figures
+	for i := range chapter.Figures {
+		if chapter.Figures[i].Sequence > deletedSequence {
+			chapter.Figures[i].Sequence--
+			// Update the figure ID to reflect new sequence
+			chapter.Figures[i].ID = types.FigureID(fmt.Sprintf("fig-%d.%d", chapterNum, chapter.Figures[i].Sequence))
+		}
+	}
+
+	// Save updated chapter metadata
+	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
+		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	return nil
+}
+
+// parseFigureIDChapter extracts the chapter number from a figure ID (e.g., "fig-1.2" -> 1)
+func (m *Manager) parseFigureIDChapter(figureID types.FigureID) (types.ChapterNumber, error) {
+	idStr := string(figureID)
+	if !strings.HasPrefix(idStr, "fig-") {
+		return 0, fmt.Errorf("figure ID must start with 'fig-'")
+	}
+
+	parts := strings.Split(idStr[4:], ".")
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("figure ID must be in format 'fig-X.Y'")
+	}
+
+	chapterNum, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, fmt.Errorf("invalid chapter number in figure ID: %w", err)
+	}
+
+	return types.ChapterNumber(chapterNum), nil
+}
+
+// RebuildChapterMarkdown compiles all section files into chapter.md
+func (m *Manager) RebuildChapterMarkdown(docID types.DocumentID, chapterNum types.ChapterNumber) error {
+	if err := docID.Validate(); err != nil {
+		return fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	// Load chapter metadata to get section order
+	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
+	if err != nil {
+		return fmt.Errorf("failed to load chapter metadata: %w", err)
+	}
+
+	// Build chapter markdown content
+	var content strings.Builder
+	
+	// Add chapter title as main heading
+	content.WriteString(fmt.Sprintf("# Chapter %d: %s\n\n", chapterNum, chapter.Title))
+	
+	// Process sections in order
+	for _, section := range chapter.Sections {
+		// Load section content
+		sectionContent, err := m.storage.LoadSectionContent(string(docID), int(chapterNum), section.Number)
+		if err != nil {
+			// If section file doesn't exist, skip it but log the issue
+			continue
+		}
+		
+		// Generate markdown header based on section level
+		headerLevel := strings.Repeat("#", section.Level+1) // +1 because chapter is already #
+		content.WriteString(fmt.Sprintf("%s %s %s\n\n", headerLevel, section.Number.String(), section.Title))
+		
+		// Add section content
+		content.WriteString(sectionContent)
+		content.WriteString("\n\n")
+	}
+	
+	// Save compiled content to chapter.md
+	if err := m.storage.SaveChapterContent(string(docID), int(chapterNum), content.String()); err != nil {
+		return fmt.Errorf("failed to save compiled chapter content: %w", err)
+	}
+	
 	return nil
 }
 
