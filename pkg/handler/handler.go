@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/docgen/pkg/config"
@@ -419,7 +421,47 @@ func (h *DocGenHandler) handleValidateDocument(params map[string]interface{}) (*
 // For now, let's implement basic placeholders
 
 func (h *DocGenHandler) handleMoveChapter(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("move_chapter tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get from position
+	fromPosFloat, ok := params["from_position"].(float64)
+	if !ok {
+		return h.errorResponse("from_position parameter is required")
+	}
+	fromPos := types.ChapterNumber(fromPosFloat)
+	if fromPos < 1 {
+		return h.errorResponse("from_position must be at least 1")
+	}
+
+	// Get to position
+	toPosFloat, ok := params["to_position"].(float64)
+	if !ok {
+		return h.errorResponse("to_position parameter is required")
+	}
+	toPos := types.ChapterNumber(toPosFloat)
+	if toPos < 1 {
+		return h.errorResponse("to_position must be at least 1")
+	}
+
+	if fromPos == toPos {
+		return h.errorResponse("from_position and to_position cannot be the same")
+	}
+
+	// Move the chapter
+	err = h.manager.MoveChapter(docID, fromPos, toPos)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to move chapter: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"from_position": int(fromPos),
+		"to_position":   int(toPos),
+		"message":       fmt.Sprintf("Chapter moved from position %d to %d successfully", fromPos, toPos),
+	})
 }
 
 func (h *DocGenHandler) handleAddSection(params map[string]interface{}) (*protocol.CallToolResponse, error) {
@@ -469,27 +511,223 @@ func (h *DocGenHandler) handleAddSection(params map[string]interface{}) (*protoc
 }
 
 func (h *DocGenHandler) handleUpdateSection(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("update_section tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get chapter number
+	chapterNum, err := h.getChapterNumber(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid chapter_number: %v", err))
+	}
+
+	// Get section number
+	sectionNumStr, ok := params["section_number"].(string)
+	if !ok || sectionNumStr == "" {
+		return h.errorResponse("section_number parameter is required")
+	}
+
+	// Parse section number
+	sectionNum, err := h.parseSectionNumber(sectionNumStr)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid section_number format: %v", err))
+	}
+
+	// Get new content
+	content, ok := params["content"].(string)
+	if !ok || content == "" {
+		return h.errorResponse("content parameter is required")
+	}
+
+	// Update the section
+	err = h.manager.UpdateSection(docID, chapterNum, sectionNum, content)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to update section: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"section_number": sectionNumStr,
+		"message":        fmt.Sprintf("Section %s updated successfully", sectionNumStr),
+	})
 }
 
 func (h *DocGenHandler) handleDeleteSection(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("delete_section tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get chapter number
+	chapterNum, err := h.getChapterNumber(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid chapter_number: %v", err))
+	}
+
+	// Get section number
+	sectionNumStr, ok := params["section_number"].(string)
+	if !ok || sectionNumStr == "" {
+		return h.errorResponse("section_number parameter is required")
+	}
+
+	// Parse section number
+	sectionNum, err := h.parseSectionNumber(sectionNumStr)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid section_number format: %v", err))
+	}
+
+	// Delete the section
+	err = h.manager.DeleteSection(docID, chapterNum, sectionNum)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to delete section: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"section_number": sectionNumStr,
+		"message":        fmt.Sprintf("Section %s deleted successfully", sectionNumStr),
+	})
 }
 
 func (h *DocGenHandler) handleAddImage(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("add_image tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get chapter number
+	chapterNum, err := h.getChapterNumber(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid chapter_number: %v", err))
+	}
+
+	// Get image path
+	imagePath, ok := params["image_path"].(string)
+	if !ok || imagePath == "" {
+		return h.errorResponse("image_path parameter is required")
+	}
+
+	// Get caption
+	caption, ok := params["caption"].(string)
+	if !ok || caption == "" {
+		return h.errorResponse("caption parameter is required")
+	}
+
+	// Get position (optional, defaults to "here")
+	position := "here"
+	if pos, ok := params["position"].(string); ok && pos != "" {
+		position = pos
+	}
+
+	// Add the image
+	figureID, err := h.manager.AddImage(docID, chapterNum, imagePath, caption, position)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to add image: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"figure_id": figureID,
+		"message":   fmt.Sprintf("Image added successfully with ID %s", figureID),
+	})
 }
 
 func (h *DocGenHandler) handleUpdateImageCaption(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("update_image_caption tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get figure ID
+	figureID, ok := params["figure_id"].(string)
+	if !ok || figureID == "" {
+		return h.errorResponse("figure_id parameter is required")
+	}
+
+	// Get new caption
+	newCaption, ok := params["new_caption"].(string)
+	if !ok || newCaption == "" {
+		return h.errorResponse("new_caption parameter is required")
+	}
+
+	// Update the image caption
+	err = h.manager.UpdateImageCaption(docID, types.FigureID(figureID), newCaption)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to update image caption: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"figure_id": figureID,
+		"message":   fmt.Sprintf("Image caption updated successfully for %s", figureID),
+	})
 }
 
 func (h *DocGenHandler) handleDeleteImage(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("delete_image tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get figure ID
+	figureID, ok := params["figure_id"].(string)
+	if !ok || figureID == "" {
+		return h.errorResponse("figure_id parameter is required")
+	}
+
+	// Delete the image
+	err = h.manager.DeleteImage(docID, types.FigureID(figureID))
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to delete image: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"figure_id": figureID,
+		"message":   fmt.Sprintf("Image %s deleted successfully", figureID),
+	})
 }
 
 func (h *DocGenHandler) handlePreviewChapter(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	return h.errorResponse("preview_chapter tool not yet implemented")
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get chapter number
+	chapterNum, err := h.getChapterNumber(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid chapter_number: %v", err))
+	}
+
+	// Get format (optional, defaults to "html")
+	format := "html"
+	if fmt, ok := params["format"].(string); ok && fmt != "" {
+		format = fmt
+	}
+
+	// Validate format
+	validFormats := map[string]bool{
+		"html": true, "pdf": true,
+	}
+	if !validFormats[format] {
+		return h.errorResponse(fmt.Sprintf("invalid format: %s (must be html or pdf)", format))
+	}
+
+	// Preview the chapter
+	previewPath, err := h.exporter.PreviewChapter(string(docID), chapterNum, types.ExportFormat(format))
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to preview chapter: %v", err))
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"preview_path": previewPath,
+		"format":       format,
+		"chapter":      int(chapterNum),
+		"message":      fmt.Sprintf("Chapter %d preview generated: %s", chapterNum, previewPath),
+	})
 }
 
 // Helper methods
@@ -520,6 +758,27 @@ func (h *DocGenHandler) getChapterNumber(params map[string]interface{}) (types.C
 	}
 
 	return chapterNum, nil
+}
+
+func (h *DocGenHandler) parseSectionNumber(sectionNumStr string) (types.SectionNumber, error) {
+	parts := strings.Split(sectionNumStr, ".")
+	if len(parts) < 2 {
+		return nil, fmt.Errorf("section number must have at least 2 parts (e.g., '1.1')")
+	}
+
+	sectionNum := make(types.SectionNumber, len(parts))
+	for i, part := range parts {
+		num, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid number in section: %s", part)
+		}
+		if num <= 0 {
+			return nil, fmt.Errorf("section numbers must be positive")
+		}
+		sectionNum[i] = num
+	}
+
+	return sectionNum, nil
 }
 
 func (h *DocGenHandler) successResponse(data interface{}) (*protocol.CallToolResponse, error) {
