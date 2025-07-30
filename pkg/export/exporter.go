@@ -69,8 +69,7 @@ func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, s
 	// Generate pandoc command
 	cmd := e.GeneratePandocCommand(documentID, tempInputFile, outputFile, manifest, style, pandocConfig, options)
 
-	// Log the command being executed for debugging
-	fmt.Printf("DEBUG: Executing pandoc command: %s %v\n", cmd.Path, cmd.Args)
+	// Command is ready for execution
 
 	// Execute pandoc command with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), e.config.ExportTimeout)
@@ -110,7 +109,6 @@ func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, s
 		stderr := <-stderrCh
 		if err != nil {
 			if stderr != "" {
-				fmt.Printf("DEBUG: Pandoc stderr: %s\n", stderr)
 				return "", fmt.Errorf("pandoc execution failed: %w. Stderr: %s", err, stderr)
 			}
 			return "", fmt.Errorf("pandoc execution failed: %w", err)
