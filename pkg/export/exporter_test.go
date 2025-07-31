@@ -57,8 +57,10 @@ func createTestDocument(t *testing.T, tempDir string) (*types.Document, *types.M
 	}
 
 	style := &types.Style{
-		FontFamily:  "Times New Roman",
-		FontSize:    "12pt",
+		Body: types.TextStyle{
+			FontFamily: "Times New Roman",
+			FontSize:   "12pt",
+		},
 		LineSpacing: "1.5",
 	}
 
@@ -214,8 +216,10 @@ func TestGenerateYAMLMetadata(t *testing.T) {
 	}
 
 	style := &types.Style{
-		FontFamily: "Times New Roman",
-		FontSize:   "12pt",
+		Body: types.TextStyle{
+			FontFamily: "Times New Roman",
+			FontSize:   "12pt",
+		},
 	}
 
 	yaml := generateYAMLMetadata(doc, style)

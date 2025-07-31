@@ -185,19 +185,74 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 	// Add format-specific options
 	switch options.Format {
 	case types.ExportFormatPDF:
-		args = append(args, "--pdf-engine", pandocConfig.PDFEngine)
+		// Determine PDF engine based on style
+		pdfEngine := determinePDFEngine(style, pandocConfig)
+		args = append(args, "--pdf-engine", pdfEngine)
+		
 		if style != nil {
-			// Add font and margin settings
-			args = append(args, "-V", fmt.Sprintf("fontsize=%s", style.FontSize))
-			args = append(args, "-V", fmt.Sprintf("mainfont=%s", style.FontFamily))
-			args = append(args, "-V", fmt.Sprintf("geometry:margin=%s", style.Margins.Top))
+			// Generate and include LaTeX header for advanced styling
+			latexHeader := generateLaTeXHeader(style, manifest)
+			if latexHeader != "" {
+				// Create temporary LaTeX header file
+				tempHeaderFile := filepath.Join(os.TempDir(), fmt.Sprintf("%s-header.tex", documentID))
+				if err := os.WriteFile(tempHeaderFile, []byte(latexHeader), 0644); err == nil {
+					args = append(args, "-H", tempHeaderFile)
+				}
+			}
+			
+			// Add basic font and margin settings
+			if style.Body.FontSize != "" {
+				args = append(args, "-V", fmt.Sprintf("fontsize=%s", style.Body.FontSize))
+			}
+			if style.Body.FontFamily != "" {
+				args = append(args, "-V", fmt.Sprintf("mainfont=%s", style.Body.FontFamily))
+			}
+			if style.Margins.Top != "" {
+				args = append(args, "-V", fmt.Sprintf("geometry:margin=%s", style.Margins.Top))
+			}
 		}
+		
 	case types.ExportFormatDOCX:
-		// Add DOCX-specific options
-		args = append(args, "--reference-doc", "reference.docx") // Could be configurable
+		// Use custom reference document if specified
+		referenceDoc := "reference.docx" // default
+		if style != nil && style.ReferenceDocx != "" {
+			// Resolve reference document path
+			if filepath.IsAbs(style.ReferenceDocx) {
+				referenceDoc = style.ReferenceDocx
+			} else {
+				// Relative to document directory
+				docDir := filepath.Dir(e.config.ManifestPath(documentID))
+				referenceDoc = filepath.Join(docDir, style.ReferenceDocx)
+			}
+		}
+		args = append(args, "--reference-doc", referenceDoc)
+		
 	case types.ExportFormatHTML:
 		args = append(args, "--standalone")
-		args = append(args, "--css", "style.css") // Could be configurable
+		
+		// Use custom CSS if specified
+		cssFile := "style.css" // default
+		if style != nil && style.StyleCSS != "" {
+			// Resolve CSS file path
+			if filepath.IsAbs(style.StyleCSS) {
+				cssFile = style.StyleCSS
+			} else {
+				// Relative to document directory
+				docDir := filepath.Dir(e.config.ManifestPath(documentID))
+				cssFile = filepath.Join(docDir, style.StyleCSS)
+			}
+		} else if style != nil {
+			// Generate CSS file with style specifications
+			cssContent := generateHTMLCSS(style, manifest)
+			if cssContent != "" {
+				// Create temporary CSS file
+				tempCSSFile := filepath.Join(os.TempDir(), fmt.Sprintf("%s-style.css", documentID))
+				if err := os.WriteFile(tempCSSFile, []byte(cssContent), 0644); err == nil {
+					cssFile = tempCSSFile
+				}
+			}
+		}
+		args = append(args, "--css", cssFile)
 	}
 
 	// Add table of contents if enabled
@@ -366,8 +421,12 @@ func generateYAMLMetadata(doc *types.Document, style *types.Style) string {
 
 	// Add style information if provided
 	if style != nil {
-		yaml.WriteString(fmt.Sprintf("fontsize: %q\n", style.FontSize))
-		yaml.WriteString(fmt.Sprintf("fontfamily: %q\n", style.FontFamily))
+		if style.Body.FontSize != "" {
+			yaml.WriteString(fmt.Sprintf("fontsize: %q\n", style.Body.FontSize))
+		}
+		if style.Body.FontFamily != "" {
+			yaml.WriteString(fmt.Sprintf("fontfamily: %q\n", style.Body.FontFamily))
+		}
 		if style.Margins.Top != "" {
 			yaml.WriteString(fmt.Sprintf("geometry: %q\n", fmt.Sprintf("margin=%s", style.Margins.Top)))
 		}
@@ -409,4 +468,329 @@ func findPandocPath(configPath string) (string, error) {
 	}
 
 	return path, nil
+}
+
+// generateLaTeXHeader creates a LaTeX header file with advanced styling
+func generateLaTeXHeader(style *types.Style, manifest *types.Manifest) string {
+	if style == nil {
+		return ""
+	}
+
+	var header strings.Builder
+
+	// Font settings (requires XeLaTeX or LuaLaTeX)
+	if needsXeLaTeX(style) {
+		header.WriteString("% Font settings (requires XeLaTeX or LuaLaTeX)\n")
+		header.WriteString("\\usepackage{fontspec}\n")
+		
+		// Set main font (body text)
+		if style.Body.FontFamily != "" {
+			header.WriteString(fmt.Sprintf("\\setmainfont{%s}\n", style.Body.FontFamily))
+		}
+		
+		// Set heading font
+		if style.Heading.FontFamily != "" && style.Heading.FontFamily != style.Body.FontFamily {
+			header.WriteString(fmt.Sprintf("\\newfontfamily\\headingfont{%s}\n", style.Heading.FontFamily))
+		}
+		
+		// Set monospace font
+		if style.Monospace.FontFamily != "" {
+			header.WriteString(fmt.Sprintf("\\newfontfamily\\monospacefont{%s}\n", style.Monospace.FontFamily))
+			header.WriteString("\\setmonofont{" + style.Monospace.FontFamily + "}\n")
+		}
+	}
+
+	// Font sizes and section styling
+	header.WriteString("\n% Font sizes and section styling\n")
+	header.WriteString("\\usepackage{sectsty}\n")
+	
+	// Apply heading font to all sections if different from body
+	if style.Heading.FontFamily != "" && style.Heading.FontFamily != style.Body.FontFamily {
+		header.WriteString("\\allsectionsfont{\\headingfont}\n")
+	}
+
+	// Color settings
+	if hasColors(style) {
+		header.WriteString("\n% Color settings\n")
+		header.WriteString("\\usepackage{xcolor}\n")
+		
+		// Define colors
+		if style.Body.Color != "" {
+			bodyColorHex := convertColorToHex(style.Body.Color)
+			header.WriteString(fmt.Sprintf("\\definecolor{bodycolor}{HTML}{%s}\n", bodyColorHex))
+		}
+		
+		if style.Heading.Color != "" {
+			headingColorHex := convertColorToHex(style.Heading.Color)
+			header.WriteString(fmt.Sprintf("\\definecolor{headingcolor}{HTML}{%s}\n", headingColorHex))
+		}
+		
+		if style.LinkColor != "" {
+			linkColorHex := convertColorToHex(style.LinkColor)
+			header.WriteString(fmt.Sprintf("\\definecolor{linkcolor}{HTML}{%s}\n", linkColorHex))
+		}
+
+		// Apply colors
+		header.WriteString("\n% Apply colors\n")
+		if style.Heading.Color != "" {
+			header.WriteString("\\allsectionsfont{\\color{headingcolor}}\n")
+		}
+		if style.Body.Color != "" {
+			header.WriteString("\\AtBeginDocument{\\color{bodycolor}}\n")
+		}
+		if style.LinkColor != "" {
+			header.WriteString("\\usepackage{hyperref}\n")
+			header.WriteString("\\hypersetup{colorlinks=true,linkcolor=linkcolor,urlcolor=linkcolor}\n")
+		}
+	}
+
+	// Header/Footer setup
+	if style.HeaderFooter.HeaderTemplate != "" || style.HeaderFooter.FooterTemplate != "" {
+		header.WriteString("\n% Header/Footer\n")
+		header.WriteString("\\usepackage{fancyhdr}\n")
+		header.WriteString("\\usepackage{lastpage}\n")
+		header.WriteString("\\pagestyle{fancy}\n")
+		header.WriteString("\\fancyhf{}\n")
+
+		// Process templates for LaTeX
+		vars := CreateTemplateVariables(manifest)
+		
+		if style.HeaderFooter.HeaderTemplate != "" {
+			headerContent := ProcessTemplateForPDF(style.HeaderFooter.HeaderTemplate, vars)
+			header.WriteString(fmt.Sprintf("\\fancyhead[C]{%s}\n", headerContent))
+		}
+		
+		if style.HeaderFooter.FooterTemplate != "" {
+			footerContent := ProcessTemplateForPDF(style.HeaderFooter.FooterTemplate, vars)
+			header.WriteString(fmt.Sprintf("\\fancyfoot[C]{%s}\n", footerContent))
+		}
+	}
+
+	// Line spacing
+	if style.LineSpacing != "" && style.LineSpacing != "1" {
+		header.WriteString(fmt.Sprintf("\n%% Line spacing\n\\linespread{%s}\n", style.LineSpacing))
+	}
+
+	// Add any custom LaTeX header content
+	if style.LaTeXHeader != "" {
+		header.WriteString("\n% Custom LaTeX header\n")
+		header.WriteString(style.LaTeXHeader)
+		header.WriteString("\n")
+	}
+
+	return header.String()
+}
+
+// needsXeLaTeX determines if XeLaTeX is required for the given style
+func needsXeLaTeX(style *types.Style) bool {
+	if style == nil {
+		return false
+	}
+
+	defaultFonts := []string{"Times New Roman", "Computer Modern", "Latin Modern", ""}
+	
+	// Check if any custom fonts are specified
+	if !contains(defaultFonts, style.Body.FontFamily) {
+		return true
+	}
+	if !contains(defaultFonts, style.Heading.FontFamily) {
+		return true
+	}
+	if style.Monospace.FontFamily != "" && !contains(defaultFonts, style.Monospace.FontFamily) {
+		return true
+	}
+	
+	return false
+}
+
+// hasColors checks if any colors are specified in the style
+func hasColors(style *types.Style) bool {
+	if style == nil {
+		return false
+	}
+	
+	return style.Body.Color != "" || style.Heading.Color != "" || 
+		   style.Monospace.Color != "" || style.LinkColor != ""
+}
+
+// convertColorToHex converts color format to hex (removes # prefix for LaTeX)
+func convertColorToHex(color string) string {
+	if color == "" {
+		return "000000"
+	}
+	
+	// Remove # prefix if present
+	if strings.HasPrefix(color, "#") {
+		return strings.TrimPrefix(color, "#")
+	}
+	
+	// Handle rgb() format
+	if strings.HasPrefix(color, "rgb(") {
+		// For now, return black as fallback - could implement RGB to hex conversion
+		return "000000"
+	}
+	
+	// Assume it's already in hex format without #
+	return color
+}
+
+// contains checks if a slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// determinePDFEngine determines which PDF engine to use based on style
+func determinePDFEngine(style *types.Style, pandocConfig *types.PandocConfig) string {
+	// User override takes precedence
+	if pandocConfig != nil && pandocConfig.PDFEngine != "" {
+		return pandocConfig.PDFEngine
+	}
+	
+	// Check if custom fonts are used
+	if needsXeLaTeX(style) {
+		return "xelatex"
+	}
+	
+	return "pdflatex"
+}
+
+// generateHTMLCSS creates CSS content for HTML export
+func generateHTMLCSS(style *types.Style, manifest *types.Manifest) string {
+	if style == nil {
+		return ""
+	}
+
+	var css strings.Builder
+
+	// Google Fonts imports (if Google Fonts are detected)
+	if needsGoogleFonts(style) {
+		css.WriteString("@import url('https://fonts.googleapis.com/css2?family=")
+		
+		fonts := make(map[string]bool)
+		if isGoogleFont(style.Body.FontFamily) {
+			fonts[strings.ReplaceAll(style.Body.FontFamily, " ", "+")] = true
+		}
+		if isGoogleFont(style.Heading.FontFamily) {
+			fonts[strings.ReplaceAll(style.Heading.FontFamily, " ", "+")] = true
+		}
+		if isGoogleFont(style.Monospace.FontFamily) {
+			fonts[strings.ReplaceAll(style.Monospace.FontFamily, " ", "+")] = true
+		}
+		
+		var fontNames []string
+		for font := range fonts {
+			fontNames = append(fontNames, font)
+		}
+		css.WriteString(strings.Join(fontNames, "&family="))
+		css.WriteString("&display=swap');\n\n")
+	}
+
+	// Body styles
+	css.WriteString("body {\n")
+	if style.Body.FontFamily != "" {
+		css.WriteString(fmt.Sprintf("    font-family: '%s', serif;\n", style.Body.FontFamily))
+	}
+	if style.Body.FontSize != "" {
+		css.WriteString(fmt.Sprintf("    font-size: %s;\n", style.Body.FontSize))
+	}
+	if style.Body.Color != "" {
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.Body.Color))
+	}
+	if style.LineSpacing != "" {
+		css.WriteString(fmt.Sprintf("    line-height: %s;\n", style.LineSpacing))
+	}
+	css.WriteString("}\n\n")
+
+	// Heading styles
+	css.WriteString("h1, h2, h3, h4, h5, h6 {\n")
+	if style.Heading.FontFamily != "" {
+		css.WriteString(fmt.Sprintf("    font-family: '%s', sans-serif;\n", style.Heading.FontFamily))
+	}
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.Heading.Color))
+	}
+	css.WriteString("}\n\n")
+
+	// Monospace styles
+	if style.Monospace.FontFamily != "" || style.Monospace.FontSize != "" || style.Monospace.Color != "" {
+		css.WriteString("code, pre, .code {\n")
+		if style.Monospace.FontFamily != "" {
+			css.WriteString(fmt.Sprintf("    font-family: '%s', monospace;\n", style.Monospace.FontFamily))
+		}
+		if style.Monospace.FontSize != "" {
+			css.WriteString(fmt.Sprintf("    font-size: %s;\n", style.Monospace.FontSize))
+		}
+		if style.Monospace.Color != "" {
+			css.WriteString(fmt.Sprintf("    color: %s;\n", style.Monospace.Color))
+		}
+		css.WriteString("}\n\n")
+	}
+
+	// Link styles
+	if style.LinkColor != "" {
+		css.WriteString("a {\n")
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.LinkColor))
+		css.WriteString("}\n\n")
+	}
+
+	// Print-specific styles for headers/footers (if templates are specified)
+	if style.HeaderFooter.HeaderTemplate != "" || style.HeaderFooter.FooterTemplate != "" {
+		vars := CreateTemplateVariables(manifest)
+		
+		css.WriteString("@media print {\n")
+		
+		if style.HeaderFooter.HeaderTemplate != "" {
+			headerContent := ProcessTemplateForHTML(style.HeaderFooter.HeaderTemplate, vars)
+			css.WriteString("    @page {\n")
+			css.WriteString(fmt.Sprintf("        @top-center { content: '%s'; }\n", headerContent))
+			css.WriteString("    }\n")
+		}
+		
+		if style.HeaderFooter.FooterTemplate != "" {
+			footerContent := ProcessTemplateForHTML(style.HeaderFooter.FooterTemplate, vars)
+			css.WriteString("    @page {\n")
+			css.WriteString(fmt.Sprintf("        @bottom-center { content: '%s'; }\n", footerContent))
+			css.WriteString("    }\n")
+		}
+		
+		css.WriteString("}\n")
+	}
+
+	return css.String()
+}
+
+// needsGoogleFonts checks if any Google Fonts are used
+func needsGoogleFonts(style *types.Style) bool {
+	return isGoogleFont(style.Body.FontFamily) || 
+		   isGoogleFont(style.Heading.FontFamily) || 
+		   isGoogleFont(style.Monospace.FontFamily)
+}
+
+// isGoogleFont checks if a font name is likely a Google Font
+func isGoogleFont(fontName string) bool {
+	if fontName == "" {
+		return false
+	}
+	
+	// Basic heuristic: Google Fonts typically have specific naming patterns
+	// For now, we'll include common ones and exclude system fonts
+	systemFonts := []string{
+		"Times New Roman", "Arial", "Helvetica", "Georgia", "Verdana",
+		"Courier New", "Comic Sans MS", "Impact", "Trebuchet MS",
+		"Computer Modern", "Latin Modern",
+	}
+	
+	for _, sysFont := range systemFonts {
+		if strings.EqualFold(fontName, sysFont) {
+			return false
+		}
+	}
+	
+	// If it's not a known system font, assume it might be a Google Font
+	return true
 }
