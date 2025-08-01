@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -187,30 +188,30 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 	case types.ExportFormatPDF:
 		// Log style information for debugging
 		if style != nil {
-			fmt.Printf("[DOCGEN PDF] Using style settings:\n")
-			fmt.Printf("  Body Font: %s, Size: %s, Color: %s\n", style.Body.FontFamily, style.Body.FontSize, style.Body.Color)
-			fmt.Printf("  Heading Font: %s, Color: %s\n", style.Heading.FontFamily, style.Heading.Color)
-			fmt.Printf("  Monospace Font: %s, Size: %s, Color: %s\n", style.Monospace.FontFamily, style.Monospace.FontSize, style.Monospace.Color)
-			fmt.Printf("  Link Color: %s\n", style.LinkColor)
-			fmt.Printf("  Line Spacing: %s\n", style.LineSpacing)
-			fmt.Printf("  Margins: Top=%s, Bottom=%s, Left=%s, Right=%s\n", style.Margins.Top, style.Margins.Bottom, style.Margins.Left, style.Margins.Right)
+			log.Printf("[DOCGEN PDF] Using style settings:\n")
+			log.Printf("  Body Font: %s, Size: %s, Color: %s\n", style.Body.FontFamily, style.Body.FontSize, style.Body.Color)
+			log.Printf("  Heading Font: %s, Color: %s\n", style.Heading.FontFamily, style.Heading.Color)
+			log.Printf("  Monospace Font: %s, Size: %s, Color: %s\n", style.Monospace.FontFamily, style.Monospace.FontSize, style.Monospace.Color)
+			log.Printf("  Link Color: %s\n", style.LinkColor)
+			log.Printf("  Line Spacing: %s\n", style.LineSpacing)
+			log.Printf("  Margins: Top=%s, Bottom=%s, Left=%s, Right=%s\n", style.Margins.Top, style.Margins.Bottom, style.Margins.Left, style.Margins.Right)
 		} else {
-			fmt.Printf("[DOCGEN PDF] No style provided, using defaults\n")
+			log.Printf("[DOCGEN PDF] No style provided, using defaults\n")
 		}
 		
 		// Determine PDF engine based on style
 		pdfEngine := determinePDFEngine(style, pandocConfig)
-		fmt.Printf("[DOCGEN PDF] Using PDF engine: %s\n", pdfEngine)
+		log.Printf("[DOCGEN PDF] Using PDF engine: %s\n", pdfEngine)
 		args = append(args, "--pdf-engine", pdfEngine)
 		
 		if style != nil {
 			// Generate and include LaTeX header for advanced styling
 			latexHeader := generateLaTeXHeader(style, manifest)
-			fmt.Printf("[DOCGEN PDF] Generated LaTeX header (%d chars):\n%s\n", len(latexHeader), latexHeader)
+			log.Printf("[DOCGEN PDF] Generated LaTeX header (%d chars):\n%s\n", len(latexHeader), latexHeader)
 			if latexHeader != "" {
 				// Create temporary LaTeX header file
 				tempHeaderFile := filepath.Join(os.TempDir(), fmt.Sprintf("%s-header.tex", documentID))
-				fmt.Printf("[DOCGEN PDF] Writing LaTeX header to: %s\n", tempHeaderFile)
+				log.Printf("[DOCGEN PDF] Writing LaTeX header to: %s\n", tempHeaderFile)
 				if err := os.WriteFile(tempHeaderFile, []byte(latexHeader), 0644); err == nil {
 					args = append(args, "-H", tempHeaderFile)
 				}
@@ -330,7 +331,7 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 	}
 
 	// Log the final pandoc command for debugging
-	fmt.Printf("[DOCGEN] Final pandoc command: %s %s\n", pandocPath, strings.Join(args, " "))
+	log.Printf("[DOCGEN] Final pandoc command: %s %s\n", pandocPath, strings.Join(args, " "))
 
 	return exec.Command(pandocPath, args...)
 }
@@ -638,32 +639,32 @@ func generateLaTeXHeader(style *types.Style, manifest *types.Manifest) string {
 // needsXeLaTeX determines if XeLaTeX is required for the given style
 func needsXeLaTeX(style *types.Style) bool {
 	if style == nil {
-		fmt.Printf("[DOCGEN FONT CHECK] Style is nil, using pdflatex\n")
+		log.Printf("[DOCGEN FONT CHECK] Style is nil, using pdflatex\n")
 		return false
 	}
 
 	defaultFonts := []string{"Times New Roman", "Computer Modern", "Latin Modern", ""}
 	
-	fmt.Printf("[DOCGEN FONT CHECK] Checking fonts against defaults: %v\n", defaultFonts)
-	fmt.Printf("[DOCGEN FONT CHECK] Body font: '%s'\n", style.Body.FontFamily)
-	fmt.Printf("[DOCGEN FONT CHECK] Heading font: '%s'\n", style.Heading.FontFamily)
-	fmt.Printf("[DOCGEN FONT CHECK] Monospace font: '%s'\n", style.Monospace.FontFamily)
+	log.Printf("[DOCGEN FONT CHECK] Checking fonts against defaults: %v\n", defaultFonts)
+	log.Printf("[DOCGEN FONT CHECK] Body font: '%s'\n", style.Body.FontFamily)
+	log.Printf("[DOCGEN FONT CHECK] Heading font: '%s'\n", style.Heading.FontFamily)
+	log.Printf("[DOCGEN FONT CHECK] Monospace font: '%s'\n", style.Monospace.FontFamily)
 	
 	// Check if any custom fonts are specified
 	if !contains(defaultFonts, style.Body.FontFamily) {
-		fmt.Printf("[DOCGEN FONT CHECK] Body font '%s' is custom, needs XeLaTeX\n", style.Body.FontFamily)
+		log.Printf("[DOCGEN FONT CHECK] Body font '%s' is custom, needs XeLaTeX\n", style.Body.FontFamily)
 		return true
 	}
 	if !contains(defaultFonts, style.Heading.FontFamily) {
-		fmt.Printf("[DOCGEN FONT CHECK] Heading font '%s' is custom, needs XeLaTeX\n", style.Heading.FontFamily)
+		log.Printf("[DOCGEN FONT CHECK] Heading font '%s' is custom, needs XeLaTeX\n", style.Heading.FontFamily)
 		return true
 	}
 	if style.Monospace.FontFamily != "" && !contains(defaultFonts, style.Monospace.FontFamily) {
-		fmt.Printf("[DOCGEN FONT CHECK] Monospace font '%s' is custom, needs XeLaTeX\n", style.Monospace.FontFamily)
+		log.Printf("[DOCGEN FONT CHECK] Monospace font '%s' is custom, needs XeLaTeX\n", style.Monospace.FontFamily)
 		return true
 	}
 	
-	fmt.Printf("[DOCGEN FONT CHECK] All fonts are defaults, using pdflatex\n")
+	log.Printf("[DOCGEN FONT CHECK] All fonts are defaults, using pdflatex\n")
 	return false
 }
 
@@ -712,19 +713,19 @@ func contains(slice []string, item string) bool {
 func determinePDFEngine(style *types.Style, pandocConfig *types.PandocConfig) string {
 	// User override takes precedence
 	if pandocConfig != nil && pandocConfig.PDFEngine != "" {
-		fmt.Printf("[DOCGEN PDF ENGINE] Using user-specified engine: %s\n", pandocConfig.PDFEngine)
+		log.Printf("[DOCGEN PDF ENGINE] Using user-specified engine: %s\n", pandocConfig.PDFEngine)
 		return pandocConfig.PDFEngine
 	}
 	
 	// Check if custom fonts are used
 	needsXe := needsXeLaTeX(style)
-	fmt.Printf("[DOCGEN PDF ENGINE] Needs XeLaTeX: %t\n", needsXe)
+	log.Printf("[DOCGEN PDF ENGINE] Needs XeLaTeX: %t\n", needsXe)
 	if needsXe {
-		fmt.Printf("[DOCGEN PDF ENGINE] Using XeLaTeX for custom fonts\n")
+		log.Printf("[DOCGEN PDF ENGINE] Using XeLaTeX for custom fonts\n")
 		return "xelatex"
 	}
 	
-	fmt.Printf("[DOCGEN PDF ENGINE] Using default pdflatex\n")
+	log.Printf("[DOCGEN PDF ENGINE] Using default pdflatex\n")
 	return "pdflatex"
 }
 

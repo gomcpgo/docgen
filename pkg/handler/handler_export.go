@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
@@ -56,14 +57,14 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 	// Check for global default style from environment variable
 	defaultStylePath := os.Getenv("DOCGEN_DEFAULT_STYLE")
 	if defaultStylePath != "" {
-		fmt.Printf("[DOCGEN HANDLER] Found DOCGEN_DEFAULT_STYLE: %s\n", defaultStylePath)
+		log.Printf("[DOCGEN HANDLER] Found DOCGEN_DEFAULT_STYLE: %s", defaultStylePath)
 		
 		// Load global style from file
 		globalStyle, err := h.loadGlobalStyleFromFile(defaultStylePath)
 		if err != nil {
-			fmt.Printf("[DOCGEN HANDLER] Failed to load global style: %v\n", err)
+			log.Printf("[DOCGEN HANDLER] Failed to load global style: %v", err)
 		} else {
-			fmt.Printf("[DOCGEN HANDLER] Successfully loaded global style from %s\n", defaultStylePath)
+			log.Printf("[DOCGEN HANDLER] Successfully loaded global style from %s", defaultStylePath)
 			// Use global style instead of document-specific style
 			style = globalStyle
 		}
@@ -71,14 +72,14 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 	
 	// Log the loaded style for debugging
 	if style != nil {
-		fmt.Printf("[DOCGEN HANDLER] Loaded style for document %s:\n", docID)
-		fmt.Printf("  Body: Font=%s, Size=%s, Color=%s\n", style.Body.FontFamily, style.Body.FontSize, style.Body.Color)
-		fmt.Printf("  Heading: Font=%s, Color=%s\n", style.Heading.FontFamily, style.Heading.Color)
-		fmt.Printf("  Monospace: Font=%s, Size=%s, Color=%s\n", style.Monospace.FontFamily, style.Monospace.FontSize, style.Monospace.Color)
-		fmt.Printf("  Link Color: %s\n", style.LinkColor)
-		fmt.Printf("  Line Spacing: %s\n", style.LineSpacing)
+		log.Printf("[DOCGEN HANDLER] Loaded style for document %s:", docID)
+		log.Printf("  Body: Font=%s, Size=%s, Color=%s", style.Body.FontFamily, style.Body.FontSize, style.Body.Color)
+		log.Printf("  Heading: Font=%s, Color=%s", style.Heading.FontFamily, style.Heading.Color)
+		log.Printf("  Monospace: Font=%s, Size=%s, Color=%s", style.Monospace.FontFamily, style.Monospace.FontSize, style.Monospace.Color)
+		log.Printf("  Link Color: %s", style.LinkColor)
+		log.Printf("  Line Spacing: %s", style.LineSpacing)
 	} else {
-		fmt.Printf("[DOCGEN HANDLER] No style loaded for document %s, using defaults\n", docID)
+		log.Printf("[DOCGEN HANDLER] No style loaded for document %s, using defaults", docID)
 	}
 
 	// Create export options
