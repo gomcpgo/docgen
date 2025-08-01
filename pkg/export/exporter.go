@@ -314,10 +314,18 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 			// Generate CSS file with style specifications
 			cssContent := generateHTMLCSS(style, manifest)
 			if cssContent != "" {
-				// Create temporary CSS file
-				tempCSSFile := filepath.Join(os.TempDir(), fmt.Sprintf("%s-style.css", documentID))
-				if err := os.WriteFile(tempCSSFile, []byte(cssContent), 0644); err == nil {
-					cssFile = tempCSSFile
+				// Create CSS file in export directory (same as HTML file)
+				exportDir := filepath.Dir(outputFile)
+				cssFileName := fmt.Sprintf("%s.css", documentID)
+				cssFilePath := filepath.Join(exportDir, cssFileName)
+				
+				log.Printf("[DOCGEN HTML] Creating CSS file: %s", cssFilePath)
+				if err := os.WriteFile(cssFilePath, []byte(cssContent), 0644); err == nil {
+					// Use relative path for HTML reference
+					cssFile = cssFileName
+					log.Printf("[DOCGEN HTML] CSS file created successfully, using relative reference: %s", cssFile)
+				} else {
+					log.Printf("[DOCGEN HTML] Failed to create CSS file: %v", err)
 				}
 			}
 		}
@@ -777,7 +785,7 @@ func generateHTMLCSS(style *types.Style, manifest *types.Manifest) string {
 		css.WriteString("&display=swap');\n\n")
 	}
 
-	// Body styles
+	// Body styles with document-like layout
 	css.WriteString("body {\n")
 	if style.Body.FontFamily != "" {
 		css.WriteString(fmt.Sprintf("    font-family: '%s', serif;\n", style.Body.FontFamily))
@@ -791,9 +799,38 @@ func generateHTMLCSS(style *types.Style, manifest *types.Manifest) string {
 	if style.LineSpacing != "" {
 		css.WriteString(fmt.Sprintf("    line-height: %s;\n", style.LineSpacing))
 	}
+	
+	// Document-like container styling
+	css.WriteString("    max-width: 8.5in;\n")
+	css.WriteString("    margin: 0 auto;\n")
+	css.WriteString("    padding: 0 1in;\n")
+	css.WriteString("    background: white;\n")
+	css.WriteString("    min-height: 100vh;\n")
+	
+	// Apply margins from style if specified
+	if style.Margins.Top != "" {
+		css.WriteString(fmt.Sprintf("    padding-top: %s;\n", style.Margins.Top))
+	}
+	if style.Margins.Bottom != "" {
+		css.WriteString(fmt.Sprintf("    padding-bottom: %s;\n", style.Margins.Bottom))
+	}
+	if style.Margins.Left != "" && style.Margins.Right != "" {
+		css.WriteString(fmt.Sprintf("    padding-left: %s;\n", style.Margins.Left))
+		css.WriteString(fmt.Sprintf("    padding-right: %s;\n", style.Margins.Right))
+	}
+	
+	css.WriteString("}\n\n")
+	
+	// Add subtle page shadow for document feel
+	css.WriteString("@media screen and (min-width: 1024px) {\n")
+	css.WriteString("    body {\n")
+	css.WriteString("        box-shadow: 0 0 20px rgba(0,0,0,0.1);\n")
+	css.WriteString("        margin-top: 2rem;\n")
+	css.WriteString("        margin-bottom: 2rem;\n")
+	css.WriteString("    }\n")
 	css.WriteString("}\n\n")
 
-	// Heading styles
+	// General heading styles
 	css.WriteString("h1, h2, h3, h4, h5, h6 {\n")
 	if style.Heading.FontFamily != "" {
 		css.WriteString(fmt.Sprintf("    font-family: '%s', sans-serif;\n", style.Heading.FontFamily))
@@ -801,6 +838,48 @@ func generateHTMLCSS(style *types.Style, manifest *types.Manifest) string {
 	if style.Heading.Color != "" {
 		css.WriteString(fmt.Sprintf("    color: %s;\n", style.Heading.Color))
 	}
+	css.WriteString("    margin-top: 0;\n")
+	css.WriteString("}\n\n")
+	
+	// Chapter headings (h1) with special styling
+	css.WriteString("h1 {\n")
+	css.WriteString("    margin-top: 3em;\n")
+	css.WriteString("    margin-bottom: 1.5em;\n")
+	css.WriteString("    padding-top: 1.5em;\n")
+	css.WriteString("    border-top: 3px solid ")
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("%s;\n", style.Heading.Color))
+	} else {
+		css.WriteString("#333;\n")
+	}
+	css.WriteString("    font-size: 1.8em;\n")
+	css.WriteString("    font-weight: bold;\n")
+	css.WriteString("}\n\n")
+	
+	// First chapter should not have top border
+	css.WriteString("h1:first-of-type {\n")
+	css.WriteString("    border-top: none;\n")
+	css.WriteString("    margin-top: 1.5em;\n")
+	css.WriteString("}\n\n")
+	
+	// Section headings with better spacing
+	css.WriteString("h2 {\n")
+	css.WriteString("    margin-top: 2.5em;\n")
+	css.WriteString("    margin-bottom: 1em;\n")
+	css.WriteString("    font-size: 1.4em;\n")
+	css.WriteString("    font-weight: bold;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("h3 {\n")
+	css.WriteString("    margin-top: 2em;\n")
+	css.WriteString("    margin-bottom: 0.8em;\n")
+	css.WriteString("    font-size: 1.2em;\n")
+	css.WriteString("    font-weight: bold;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("h4, h5, h6 {\n")
+	css.WriteString("    margin-top: 1.5em;\n")
+	css.WriteString("    margin-bottom: 0.6em;\n")
 	css.WriteString("}\n\n")
 
 	// Monospace styles
@@ -822,17 +901,115 @@ func generateHTMLCSS(style *types.Style, manifest *types.Manifest) string {
 	if style.LinkColor != "" {
 		css.WriteString("a {\n")
 		css.WriteString(fmt.Sprintf("    color: %s;\n", style.LinkColor))
+		css.WriteString("    text-decoration: none;\n")
+		css.WriteString("}\n\n")
+		
+		css.WriteString("a:hover {\n")
+		css.WriteString("    text-decoration: underline;\n")
 		css.WriteString("}\n\n")
 	}
+	
+	// Paragraph and content styling
+	css.WriteString("p {\n")
+	css.WriteString("    margin-bottom: 1.2em;\n")
+	css.WriteString("    text-align: justify;\n")
+	css.WriteString("    line-height: inherit;\n")
+	css.WriteString("}\n\n")
+	
+	// Table of Contents styling
+	css.WriteString("#TOC {\n")
+	css.WriteString("    background: #f8f9fa;\n")
+	css.WriteString("    padding: 1.5em;\n")
+	css.WriteString("    margin: 2em 0;\n")
+	css.WriteString("    border-radius: 8px;\n")
+	css.WriteString("    border-left: 4px solid ")
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("%s;\n", style.Heading.Color))
+	} else {
+		css.WriteString("#004d65;\n")
+	}
+	css.WriteString("}\n\n")
+	
+	css.WriteString("#TOC ul {\n")
+	css.WriteString("    margin: 0;\n")
+	css.WriteString("    padding-left: 1.5em;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("#TOC li {\n")
+	css.WriteString("    margin: 0.3em 0;\n")
+	css.WriteString("}\n\n")
+	
+	// Table styling
+	css.WriteString("table {\n")
+	css.WriteString("    width: 100%;\n")
+	css.WriteString("    border-collapse: collapse;\n")
+	css.WriteString("    margin: 1.5em 0;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("th, td {\n")
+	css.WriteString("    border: 1px solid #ddd;\n")
+	css.WriteString("    padding: 0.75em;\n")
+	css.WriteString("    text-align: left;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("th {\n")
+	css.WriteString("    background-color: #f5f5f5;\n")
+	css.WriteString("    font-weight: bold;\n")
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.Heading.Color))
+	}
+	css.WriteString("}\n\n")
+	
+	// Responsive design for smaller screens
+	css.WriteString("@media screen and (max-width: 768px) {\n")
+	css.WriteString("    body {\n")
+	css.WriteString("        margin: 0;\n")
+	css.WriteString("        padding: 1rem;\n")
+	css.WriteString("        max-width: none;\n")
+	css.WriteString("        box-shadow: none;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h1 {\n")
+	css.WriteString("        margin-top: 2em;\n")
+	css.WriteString("        font-size: 1.5em;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h2 {\n")
+	css.WriteString("        margin-top: 1.5em;\n")
+	css.WriteString("        font-size: 1.3em;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    #TOC {\n")
+	css.WriteString("        padding: 1rem;\n")
+	css.WriteString("        margin: 1rem 0;\n")
+	css.WriteString("    }\n")
+	css.WriteString("}\n\n")
 
-	// Print-specific styles for headers/footers (if templates are specified)
+	// Print styles
+	css.WriteString("@media print {\n")
+	css.WriteString("    body {\n")
+	css.WriteString("        margin: 0;\n")
+	css.WriteString("        padding: 0;\n")
+	css.WriteString("        max-width: none;\n")
+	css.WriteString("        box-shadow: none;\n")
+	css.WriteString("        background: white;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h1 {\n")
+	css.WriteString("        page-break-before: always;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h1:first-of-type {\n")
+	css.WriteString("        page-break-before: auto;\n")
+	css.WriteString("    }\n")
+	
+	// Print-specific headers/footers (if templates are specified)
 	if style.HeaderFooter.HeaderTemplate != "" || style.HeaderFooter.FooterTemplate != "" {
 		vars := CreateTemplateVariables(manifest)
 		
-		css.WriteString("@media print {\n")
-		
 		if style.HeaderFooter.HeaderTemplate != "" {
 			headerContent := ProcessTemplateForHTML(style.HeaderFooter.HeaderTemplate, vars)
+			css.WriteString("    \n")
 			css.WriteString("    @page {\n")
 			css.WriteString(fmt.Sprintf("        @top-center { content: '%s'; }\n", headerContent))
 			css.WriteString("    }\n")
@@ -840,13 +1017,14 @@ func generateHTMLCSS(style *types.Style, manifest *types.Manifest) string {
 		
 		if style.HeaderFooter.FooterTemplate != "" {
 			footerContent := ProcessTemplateForHTML(style.HeaderFooter.FooterTemplate, vars)
+			css.WriteString("    \n") 
 			css.WriteString("    @page {\n")
 			css.WriteString(fmt.Sprintf("        @bottom-center { content: '%s'; }\n", footerContent))
 			css.WriteString("    }\n")
 		}
-		
-		css.WriteString("}\n")
 	}
+	
+	css.WriteString("}\n")
 
 	return css.String()
 }
