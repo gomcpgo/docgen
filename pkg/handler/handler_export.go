@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/docgen/pkg/types"
@@ -50,6 +52,22 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 	// Load document styles and pandoc config (can be nil)
 	style, _ := h.storage.LoadStyle(string(docID))
 	pandocConfig, _ := h.storage.LoadPandocConfig(string(docID))
+	
+	// Check for global default style from environment variable
+	defaultStylePath := os.Getenv("DOCGEN_DEFAULT_STYLE")
+	if defaultStylePath != "" {
+		fmt.Printf("[DOCGEN HANDLER] Found DOCGEN_DEFAULT_STYLE: %s\n", defaultStylePath)
+		
+		// Load global style from file
+		globalStyle, err := h.loadGlobalStyleFromFile(defaultStylePath)
+		if err != nil {
+			fmt.Printf("[DOCGEN HANDLER] Failed to load global style: %v\n", err)
+		} else {
+			fmt.Printf("[DOCGEN HANDLER] Successfully loaded global style from %s\n", defaultStylePath)
+			// Use global style instead of document-specific style
+			style = globalStyle
+		}
+	}
 	
 	// Log the loaded style for debugging
 	if style != nil {
@@ -142,4 +160,26 @@ func (h *DocGenHandler) handleValidateDocument(params map[string]interface{}) (*
 		"validation_report": report,
 		"message":           fmt.Sprintf("Document %s validation completed", docID),
 	})
+}
+
+// loadGlobalStyleFromFile loads a style from a JSON file path
+func (h *DocGenHandler) loadGlobalStyleFromFile(filePath string) (*types.Style, error) {
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("style file not found: %s", filePath)
+	}
+
+	// Read file content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read style file: %w", err)
+	}
+
+	// Parse JSON
+	var style types.Style
+	if err := json.Unmarshal(content, &style); err != nil {
+		return nil, fmt.Errorf("failed to parse style JSON: %w", err)
+	}
+
+	return &style, nil
 }

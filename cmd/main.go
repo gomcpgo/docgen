@@ -606,6 +606,14 @@ func runDirectExport(exportSpec string, customStyleFile string) {
 
 	fmt.Printf("Root directory: %s\n", rootDir)
 	fmt.Printf("Pandoc path: %s\n", pandocPath)
+	
+	// Check for global default style environment variable for testing
+	defaultStylePath := os.Getenv("DOCGEN_DEFAULT_STYLE")
+	if defaultStylePath != "" {
+		fmt.Printf("Global default style: %s\n", defaultStylePath)
+	} else {
+		fmt.Printf("No global default style set\n")
+	}
 
 	// Set up configuration with environment variables
 	os.Setenv("DOCGEN_ROOT_DIR", rootDir)
