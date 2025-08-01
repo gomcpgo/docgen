@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gomcpgo/mcp/pkg/handler"
 	"github.com/gomcpgo/mcp/pkg/protocol"
@@ -14,6 +15,7 @@ import (
 	"github.com/gomcpgo/docgen/pkg/config"
 	docgenHandler "github.com/gomcpgo/docgen/pkg/handler"
 	"github.com/gomcpgo/docgen/pkg/types"
+	"gopkg.in/yaml.v3"
 )
 
 // Version information (set by build script)
@@ -27,12 +29,19 @@ func main() {
 	testMode := flag.Bool("test", false, "Run integration tests with sample documents")
 	keepFiles := flag.Bool("keep-files", false, "Keep generated test files (only used with -test)")
 	versionFlag := flag.Bool("version", false, "Show version information")
+	exportDoc := flag.String("export", "", "Export existing document by ID (format: documentID,format). Example: -export my-doc-123,pdf")
+	styleFile := flag.String("style", "", "Custom style file to use for export (JSON or YAML). Example: -style '/path/to/style.json'")
 	flag.Parse()
 
 	if *versionFlag {
 		fmt.Printf("Document Generation MCP Server\n")
 		fmt.Printf("Version: %s\n", Version)
 		fmt.Printf("Build Time: %s\n", BuildTime)
+		return
+	}
+
+	if *exportDoc != "" {
+		runDirectExport(*exportDoc, *styleFile)
 		return
 	}
 
@@ -552,4 +561,224 @@ func isPandocAvailable() bool {
 	}
 	_, err = os.Stat("/opt/homebrew/bin/pandoc")
 	return err == nil
+}
+
+// runDirectExport directly exports a document for troubleshooting
+func runDirectExport(exportSpec string, customStyleFile string) {
+	fmt.Println("Document Generation MCP Server - Direct Export Mode")
+	fmt.Println("===================================================")
+
+	// Parse export specification (documentID,format)
+	parts := strings.Split(exportSpec, ",")
+	if len(parts) != 2 {
+		log.Fatalf("Invalid export specification. Use format: documentID,format (e.g., my-doc-123,pdf)")
+	}
+
+	docID := strings.TrimSpace(parts[0])
+	format := strings.TrimSpace(parts[1])
+
+	// Validate format
+	validFormats := map[string]bool{
+		"pdf": true, "docx": true, "html": true,
+	}
+	if !validFormats[format] {
+		log.Fatalf("Invalid format '%s'. Valid formats: pdf, docx, html", format)
+	}
+
+	fmt.Printf("Document ID: %s\n", docID)
+	fmt.Printf("Format: %s\n", format)
+
+	// Check required environment variables
+	rootDir := os.Getenv("DOCGEN_ROOT_DIR")
+	if rootDir == "" {
+		log.Fatalf("DOCGEN_ROOT_DIR environment variable not set. Please set it to the directory containing your documents.")
+	}
+
+	pandocPath := os.Getenv("PANDOC_PATH")
+	if pandocPath == "" {
+		// Try to find pandoc automatically
+		if isPandocAvailable() {
+			pandocPath = "pandoc"
+		} else {
+			log.Fatalf("PANDOC_PATH environment variable not set and pandoc not found in standard locations.")
+		}
+	}
+
+	fmt.Printf("Root directory: %s\n", rootDir)
+	fmt.Printf("Pandoc path: %s\n", pandocPath)
+
+	// Set up configuration with environment variables
+	os.Setenv("DOCGEN_ROOT_DIR", rootDir)
+	os.Setenv("PANDOC_PATH", pandocPath)
+
+	// Load configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	// Create docgen handler
+	handler, err := docgenHandler.NewDocGenHandler(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create docgen handler: %v", err)
+	}
+
+	// Check if document exists
+	fmt.Printf("\n🔍 Checking if document exists...\n")
+	manifestPath := cfg.ManifestPath(docID)
+	if _, err := os.Stat(manifestPath); os.IsNotExist(err) {
+		log.Fatalf("Document '%s' not found at path: %s", docID, manifestPath)
+	}
+	fmt.Printf("✅ Document found: %s\n", manifestPath)
+
+	// Get document structure
+	fmt.Printf("\n📋 Getting document structure...\n")
+	structParams := map[string]interface{}{
+		"document_id": docID,
+	}
+
+	structResponse, err := handler.CallTool(nil, &protocol.CallToolRequest{
+		Name:      "get_document_structure",
+		Arguments: structParams,
+	})
+	if err != nil {
+		log.Fatalf("Failed to get document structure: %v", err)
+	}
+
+	if structResponse.IsError {
+		log.Fatalf("Error getting document structure: %s", structResponse.Content[0].Text)
+	}
+
+	fmt.Printf("✅ Document structure retrieved successfully\n")
+
+	// Handle custom style file if provided
+	var customStyle *types.Style
+	if customStyleFile != "" {
+		fmt.Printf("\n🎨 Loading custom style file: %s\n", customStyleFile)
+		loadedStyle, err := loadCustomStyleFile(customStyleFile)
+		if err != nil {
+			log.Fatalf("Failed to load custom style file: %v", err)
+		}
+		customStyle = loadedStyle
+		fmt.Printf("✅ Custom style loaded successfully\n")
+		fmt.Printf("  Body Font: %s, Size: %s, Color: %s\n", customStyle.Body.FontFamily, customStyle.Body.FontSize, customStyle.Body.Color)
+		fmt.Printf("  Heading Font: %s, Color: %s\n", customStyle.Heading.FontFamily, customStyle.Heading.Color)
+		fmt.Printf("  Monospace Font: %s, Size: %s, Color: %s\n", customStyle.Monospace.FontFamily, customStyle.Monospace.FontSize, customStyle.Monospace.Color)
+	}
+
+	// Export the document
+	fmt.Printf("\n🚀 Exporting document to %s...\n", format)
+	
+	var outputPath string
+	if customStyle != nil {
+		// Use direct exporter with custom style
+		fmt.Printf("📝 Using custom style for export\n")
+		
+		// Load document manifest 
+		manifest, err := handler.GetManager().GetDocumentStructure(types.DocumentID(docID))
+		if err != nil {
+			log.Fatalf("Failed to load document manifest: %v", err)
+		}
+		
+		// Load default pandoc config (or could be customized later)
+		pandocConfig, _ := handler.GetStorage().LoadPandocConfig(string(docID))
+		
+		// Create export options
+		options := &types.ExportOptions{
+			Format:   types.ExportFormat(format),
+			Chapters: []types.ChapterNumber{}, // empty means all chapters
+		}
+		
+		// Export directly with custom style
+		outputPath, err = handler.GetExporter().ExportDocument(string(docID), manifest, customStyle, pandocConfig, options, handler.GetManager().RebuildChapterMarkdown)
+		if err != nil {
+			log.Fatalf("Failed to export document with custom style: %v", err)
+		}
+	} else {
+		// Use standard MCP handler export
+		exportParams := map[string]interface{}{
+			"document_id": docID,
+			"format":      format,
+		}
+
+		exportResponse, err := handler.CallTool(nil, &protocol.CallToolRequest{
+			Name:      "export_document",
+			Arguments: exportParams,
+		})
+		if err != nil {
+			log.Fatalf("Failed to export document: %v", err)
+		}
+
+		if exportResponse.IsError {
+			log.Fatalf("Error exporting document: %s", exportResponse.Content[0].Text)
+		}
+
+		// Parse export response
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(exportResponse.Content[0].Text), &result); err != nil {
+			log.Fatalf("Failed to parse export response: %v", err)
+		}
+
+		var ok bool
+		outputPath, ok = result["output_path"].(string)
+		if !ok {
+			log.Fatalf("Failed to extract output_path from export response")
+		}
+	}
+
+	// Check if exported file exists and get its size
+	if stat, err := os.Stat(outputPath); err == nil {
+		fmt.Printf("✅ Export completed successfully!\n")
+		fmt.Printf("📄 Output file: %s\n", outputPath)
+		fmt.Printf("📏 File size: %d bytes\n", stat.Size())
+		
+		// Show file modification time
+		fmt.Printf("⏰ Created: %s\n", stat.ModTime().Format("2006-01-02 15:04:05"))
+		
+		if stat.Size() == 0 {
+			fmt.Printf("⚠️  Warning: Output file is empty (0 bytes)\n")
+		}
+	} else {
+		fmt.Printf("⚠️  Warning: Export reported success but output file not found: %s\n", outputPath)
+	}
+
+	fmt.Printf("\n🎉 Direct export completed!\n")
+}
+
+// loadCustomStyleFile loads a style file in JSON or YAML format
+func loadCustomStyleFile(filePath string) (*types.Style, error) {
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("style file not found: %s", filePath)
+	}
+
+	// Read file content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read style file: %w", err)
+	}
+
+	var style types.Style
+	
+	// Determine format by file extension
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".json":
+		if err := json.Unmarshal(content, &style); err != nil {
+			return nil, fmt.Errorf("failed to parse JSON style file: %w", err)
+		}
+	case ".yaml", ".yml":
+		if err := yaml.Unmarshal(content, &style); err != nil {
+			return nil, fmt.Errorf("failed to parse YAML style file: %w", err)
+		}
+	default:
+		// Try JSON first, then YAML
+		if err := json.Unmarshal(content, &style); err != nil {
+			if err2 := yaml.Unmarshal(content, &style); err2 != nil {
+				return nil, fmt.Errorf("failed to parse style file as JSON or YAML: JSON error: %v, YAML error: %v", err, err2)
+			}
+		}
+	}
+
+	return &style, nil
 }

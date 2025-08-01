@@ -50,6 +50,18 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 	// Load document styles and pandoc config (can be nil)
 	style, _ := h.storage.LoadStyle(string(docID))
 	pandocConfig, _ := h.storage.LoadPandocConfig(string(docID))
+	
+	// Log the loaded style for debugging
+	if style != nil {
+		fmt.Printf("[DOCGEN HANDLER] Loaded style for document %s:\n", docID)
+		fmt.Printf("  Body: Font=%s, Size=%s, Color=%s\n", style.Body.FontFamily, style.Body.FontSize, style.Body.Color)
+		fmt.Printf("  Heading: Font=%s, Color=%s\n", style.Heading.FontFamily, style.Heading.Color)
+		fmt.Printf("  Monospace: Font=%s, Size=%s, Color=%s\n", style.Monospace.FontFamily, style.Monospace.FontSize, style.Monospace.Color)
+		fmt.Printf("  Link Color: %s\n", style.LinkColor)
+		fmt.Printf("  Line Spacing: %s\n", style.LineSpacing)
+	} else {
+		fmt.Printf("[DOCGEN HANDLER] No style loaded for document %s, using defaults\n", docID)
+	}
 
 	// Create export options
 	options := &types.ExportOptions{
