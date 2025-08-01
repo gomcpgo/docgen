@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 
 	"github.com/gomcpgo/mcp/pkg/protocol"
 	"github.com/gomcpgo/docgen/pkg/types"
@@ -50,6 +53,34 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 	// Load document styles and pandoc config (can be nil)
 	style, _ := h.storage.LoadStyle(string(docID))
 	pandocConfig, _ := h.storage.LoadPandocConfig(string(docID))
+	
+	// Check for global default style from environment variable
+	defaultStylePath := os.Getenv("DOCGEN_DEFAULT_STYLE")
+	if defaultStylePath != "" {
+		log.Printf("[DOCGEN HANDLER] Found DOCGEN_DEFAULT_STYLE: %s", defaultStylePath)
+		
+		// Load global style from file
+		globalStyle, err := h.loadGlobalStyleFromFile(defaultStylePath)
+		if err != nil {
+			log.Printf("[DOCGEN HANDLER] Failed to load global style: %v", err)
+		} else {
+			log.Printf("[DOCGEN HANDLER] Successfully loaded global style from %s", defaultStylePath)
+			// Use global style instead of document-specific style
+			style = globalStyle
+		}
+	}
+	
+	// Log the loaded style for debugging
+	if style != nil {
+		log.Printf("[DOCGEN HANDLER] Loaded style for document %s:", docID)
+		log.Printf("  Body: Font=%s, Size=%s, Color=%s", style.Body.FontFamily, style.Body.FontSize, style.Body.Color)
+		log.Printf("  Heading: Font=%s, Color=%s", style.Heading.FontFamily, style.Heading.Color)
+		log.Printf("  Monospace: Font=%s, Size=%s, Color=%s", style.Monospace.FontFamily, style.Monospace.FontSize, style.Monospace.Color)
+		log.Printf("  Link Color: %s", style.LinkColor)
+		log.Printf("  Line Spacing: %s", style.LineSpacing)
+	} else {
+		log.Printf("[DOCGEN HANDLER] No style loaded for document %s, using defaults", docID)
+	}
 
 	// Create export options
 	options := &types.ExportOptions{
@@ -130,4 +161,26 @@ func (h *DocGenHandler) handleValidateDocument(params map[string]interface{}) (*
 		"validation_report": report,
 		"message":           fmt.Sprintf("Document %s validation completed", docID),
 	})
+}
+
+// loadGlobalStyleFromFile loads a style from a JSON file path
+func (h *DocGenHandler) loadGlobalStyleFromFile(filePath string) (*types.Style, error) {
+	// Check if file exists
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("style file not found: %s", filePath)
+	}
+
+	// Read file content
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read style file: %w", err)
+	}
+
+	// Parse JSON
+	var style types.Style
+	if err := json.Unmarshal(content, &style); err != nil {
+		return nil, fmt.Errorf("failed to parse style JSON: %w", err)
+	}
+
+	return &style, nil
 }

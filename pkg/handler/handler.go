@@ -37,6 +37,19 @@ func NewDocGenHandler(cfg *config.Config) (*DocGenHandler, error) {
 	}, nil
 }
 
+// Getter methods for direct access to internal components
+func (h *DocGenHandler) GetManager() *document.Manager {
+	return h.manager
+}
+
+func (h *DocGenHandler) GetExporter() *export.Exporter {
+	return h.exporter
+}
+
+func (h *DocGenHandler) GetStorage() storage.Storage {
+	return h.storage
+}
+
 // CallTool executes a tool
 func (h *DocGenHandler) CallTool(ctx context.Context, req *protocol.CallToolRequest) (*protocol.CallToolResponse, error) {
 	switch req.Name {

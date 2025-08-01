@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,8 +67,22 @@ func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, s
 		return "", fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	// Create temporary CSS file for HTML export if needed
+	var tempCSSFile string
+	if options.Format == types.ExportFormatHTML && style != nil {
+		cssContent := generateHTMLCSS(style, manifest)
+		if cssContent != "" {
+			tempCSSFile = filepath.Join(os.TempDir(), fmt.Sprintf("%s-style.css", documentID))
+			if err := os.WriteFile(tempCSSFile, []byte(cssContent), 0644); err != nil {
+				return "", fmt.Errorf("failed to create temporary CSS file: %w", err)
+			}
+			defer os.Remove(tempCSSFile)
+			log.Printf("[DOCGEN HTML] Created temporary CSS file: %s", tempCSSFile)
+		}
+	}
+
 	// Generate pandoc command
-	cmd := e.GeneratePandocCommand(documentID, tempInputFile, outputFile, manifest, style, pandocConfig, options)
+	cmd := e.GeneratePandocCommand(documentID, tempInputFile, outputFile, manifest, style, pandocConfig, options, tempCSSFile)
 
 	// Command is ready for execution
 
@@ -176,7 +191,7 @@ func (e *Exporter) GenerateMarkdown(documentID string, manifest *types.Manifest,
 }
 
 // GeneratePandocCommand creates the pandoc command with all necessary options
-func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions) *exec.Cmd {
+func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions, tempCSSFile string) *exec.Cmd {
 	args := []string{
 		inputFile,
 		"-o", outputFile,
@@ -185,19 +200,137 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 	// Add format-specific options
 	switch options.Format {
 	case types.ExportFormatPDF:
-		args = append(args, "--pdf-engine", pandocConfig.PDFEngine)
+		// Log style information for debugging
 		if style != nil {
-			// Add font and margin settings
-			args = append(args, "-V", fmt.Sprintf("fontsize=%s", style.FontSize))
-			args = append(args, "-V", fmt.Sprintf("mainfont=%s", style.FontFamily))
-			args = append(args, "-V", fmt.Sprintf("geometry:margin=%s", style.Margins.Top))
+			log.Printf("[DOCGEN PDF] Using style settings:\n")
+			log.Printf("  Body Font: %s, Size: %s, Color: %s\n", style.Body.FontFamily, style.Body.FontSize, style.Body.Color)
+			log.Printf("  Heading Font: %s, Color: %s\n", style.Heading.FontFamily, style.Heading.Color)
+			log.Printf("  Monospace Font: %s, Size: %s, Color: %s\n", style.Monospace.FontFamily, style.Monospace.FontSize, style.Monospace.Color)
+			log.Printf("  Link Color: %s\n", style.LinkColor)
+			log.Printf("  Line Spacing: %s\n", style.LineSpacing)
+			log.Printf("  Margins: Top=%s, Bottom=%s, Left=%s, Right=%s\n", style.Margins.Top, style.Margins.Bottom, style.Margins.Left, style.Margins.Right)
+		} else {
+			log.Printf("[DOCGEN PDF] No style provided, using defaults\n")
 		}
+		
+		// Determine PDF engine based on style
+		pdfEngine := determinePDFEngine(style, pandocConfig)
+		log.Printf("[DOCGEN PDF] Using PDF engine: %s\n", pdfEngine)
+		args = append(args, "--pdf-engine", pdfEngine)
+		
+		if style != nil {
+			// Generate and include LaTeX header for advanced styling
+			latexHeader := generateLaTeXHeader(style, manifest)
+			log.Printf("[DOCGEN PDF] Generated LaTeX header (%d chars):\n%s\n", len(latexHeader), latexHeader)
+			if latexHeader != "" {
+				// Create temporary LaTeX header file
+				tempHeaderFile := filepath.Join(os.TempDir(), fmt.Sprintf("%s-header.tex", documentID))
+				log.Printf("[DOCGEN PDF] Writing LaTeX header to: %s\n", tempHeaderFile)
+				if err := os.WriteFile(tempHeaderFile, []byte(latexHeader), 0644); err == nil {
+					args = append(args, "-H", tempHeaderFile)
+				}
+			}
+			
+			// Add basic font and margin settings
+			if style.Body.FontSize != "" {
+				args = append(args, "-V", fmt.Sprintf("fontsize=%s", style.Body.FontSize))
+			}
+			if style.Body.FontFamily != "" {
+				args = append(args, "-V", fmt.Sprintf("mainfont=%s", style.Body.FontFamily))
+			}
+			if style.Margins.Top != "" {
+				args = append(args, "-V", fmt.Sprintf("geometry:margin=%s", style.Margins.Top))
+			}
+		}
+		
 	case types.ExportFormatDOCX:
-		// Add DOCX-specific options
-		args = append(args, "--reference-doc", "reference.docx") // Could be configurable
+		// Use custom reference document if specified
+		var referenceDoc string
+		useReferenceDoc := false
+		
+		if style != nil && style.ReferenceDocx != "" {
+			// Resolve reference document path
+			if filepath.IsAbs(style.ReferenceDocx) {
+				referenceDoc = style.ReferenceDocx
+			} else {
+				// Relative to document directory
+				docDir := filepath.Dir(e.config.ManifestPath(documentID))
+				referenceDoc = filepath.Join(docDir, style.ReferenceDocx)
+			}
+			
+			// Check if the reference document exists
+			if _, err := os.Stat(referenceDoc); err == nil {
+				useReferenceDoc = true
+				log.Printf("[DOCGEN DOCX] Using custom reference document: %s", referenceDoc)
+			} else {
+				log.Printf("[DOCGEN DOCX] Custom reference document not found: %s", referenceDoc)
+			}
+		}
+		
+		if !useReferenceDoc && style != nil {
+			// Apply Typography settings using Pandoc variables for DOCX
+			// Note: This provides basic font support, but full styling requires a custom reference.docx
+			log.Printf("[DOCGEN DOCX] Using Pandoc variables for basic styling (no reference document)")
+			
+			// Set main font
+			if style.Body.FontFamily != "" {
+				args = append(args, "-V", fmt.Sprintf("mainfont=%s", style.Body.FontFamily))
+			}
+			
+			// Set font size
+			if style.Body.FontSize != "" {
+				args = append(args, "-V", fmt.Sprintf("fontsize=%s", style.Body.FontSize))
+			}
+			
+			// Set line spacing (convert to Word format)
+			if style.LineSpacing != "" {
+				// Convert CSS line-spacing to Word format
+				switch style.LineSpacing {
+				case "1.0":
+					args = append(args, "-V", "linestretch=1")
+				case "1.15":
+					args = append(args, "-V", "linestretch=1.15") 
+				case "1.5":
+					args = append(args, "-V", "linestretch=1.5")
+				case "2.0":
+					args = append(args, "-V", "linestretch=2")
+				default:
+					args = append(args, "-V", fmt.Sprintf("linestretch=%s", style.LineSpacing))
+				}
+			}
+			
+			// Set margins (convert to Word format if needed)
+			if style.Margins.Top != "" {
+				args = append(args, "-V", fmt.Sprintf("geometry:margin=%s", style.Margins.Top))
+			}
+		}
+		
+		// Only add reference document if one exists and is specified
+		if useReferenceDoc {
+			args = append(args, "--reference-doc", referenceDoc)
+		}
+		
 	case types.ExportFormatHTML:
 		args = append(args, "--standalone")
-		args = append(args, "--css", "style.css") // Could be configurable
+		args = append(args, "--embed-resources") // Embed CSS and other resources directly in HTML
+		
+		// Use custom CSS if specified
+		if style != nil && style.StyleCSS != "" {
+			// Resolve CSS file path
+			var cssFile string
+			if filepath.IsAbs(style.StyleCSS) {
+				cssFile = style.StyleCSS
+			} else {
+				// Relative to document directory
+				docDir := filepath.Dir(e.config.ManifestPath(documentID))
+				cssFile = filepath.Join(docDir, style.StyleCSS)
+			}
+			args = append(args, "--css", cssFile)
+		} else if tempCSSFile != "" {
+			// Use the temporary CSS file created in the main export function
+			args = append(args, "--css", tempCSSFile)
+			log.Printf("[DOCGEN HTML] Using temporary CSS file: %s", tempCSSFile)
+		}
 	}
 
 	// Add table of contents if enabled
@@ -222,6 +355,9 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 		// This should have been caught in validation, but handle gracefully
 		pandocPath = e.config.PandocPath
 	}
+
+	// Log the final pandoc command for debugging
+	log.Printf("[DOCGEN] Final pandoc command: %s %s\n", pandocPath, strings.Join(args, " "))
 
 	return exec.Command(pandocPath, args...)
 }
@@ -366,8 +502,12 @@ func generateYAMLMetadata(doc *types.Document, style *types.Style) string {
 
 	// Add style information if provided
 	if style != nil {
-		yaml.WriteString(fmt.Sprintf("fontsize: %q\n", style.FontSize))
-		yaml.WriteString(fmt.Sprintf("fontfamily: %q\n", style.FontFamily))
+		if style.Body.FontSize != "" {
+			yaml.WriteString(fmt.Sprintf("fontsize: %q\n", style.Body.FontSize))
+		}
+		if style.Body.FontFamily != "" {
+			yaml.WriteString(fmt.Sprintf("fontfamily: %q\n", style.Body.FontFamily))
+		}
 		if style.Margins.Top != "" {
 			yaml.WriteString(fmt.Sprintf("geometry: %q\n", fmt.Sprintf("margin=%s", style.Margins.Top)))
 		}
@@ -410,3 +550,514 @@ func findPandocPath(configPath string) (string, error) {
 
 	return path, nil
 }
+
+// generateLaTeXHeader creates a LaTeX header file with advanced styling
+func generateLaTeXHeader(style *types.Style, manifest *types.Manifest) string {
+	if style == nil {
+		return ""
+	}
+
+	var header strings.Builder
+
+	// Font settings (requires XeLaTeX or LuaLaTeX)
+	if needsXeLaTeX(style) {
+		header.WriteString("% Font settings (requires XeLaTeX or LuaLaTeX)\n")
+		header.WriteString("\\usepackage{fontspec}\n")
+		
+		// Set main font (body text)
+		if style.Body.FontFamily != "" {
+			header.WriteString(fmt.Sprintf("\\setmainfont{%s}\n", style.Body.FontFamily))
+		}
+		
+		// Set heading font
+		if style.Heading.FontFamily != "" && style.Heading.FontFamily != style.Body.FontFamily {
+			header.WriteString(fmt.Sprintf("\\newfontfamily\\headingfont{%s}\n", style.Heading.FontFamily))
+		}
+		
+		// Set monospace font
+		if style.Monospace.FontFamily != "" {
+			header.WriteString(fmt.Sprintf("\\newfontfamily\\monospacefont{%s}\n", style.Monospace.FontFamily))
+			header.WriteString("\\setmonofont{" + style.Monospace.FontFamily + "}\n")
+		}
+	}
+
+	// Font sizes and section styling
+	header.WriteString("\n% Font sizes and section styling\n")
+	header.WriteString("\\usepackage{sectsty}\n")
+	
+	// Apply heading font to all sections if different from body
+	if style.Heading.FontFamily != "" && style.Heading.FontFamily != style.Body.FontFamily {
+		header.WriteString("\\allsectionsfont{\\headingfont}\n")
+	}
+
+	// Color settings
+	if hasColors(style) {
+		header.WriteString("\n% Color settings\n")
+		header.WriteString("\\usepackage{xcolor}\n")
+		
+		// Define colors
+		if style.Body.Color != "" {
+			bodyColorHex := convertColorToHex(style.Body.Color)
+			header.WriteString(fmt.Sprintf("\\definecolor{bodycolor}{HTML}{%s}\n", bodyColorHex))
+		}
+		
+		if style.Heading.Color != "" {
+			headingColorHex := convertColorToHex(style.Heading.Color)
+			header.WriteString(fmt.Sprintf("\\definecolor{headingcolor}{HTML}{%s}\n", headingColorHex))
+		}
+		
+		if style.LinkColor != "" {
+			linkColorHex := convertColorToHex(style.LinkColor)
+			header.WriteString(fmt.Sprintf("\\definecolor{linkcolor}{HTML}{%s}\n", linkColorHex))
+		}
+
+		// Apply colors
+		header.WriteString("\n% Apply colors\n")
+		if style.Heading.Color != "" {
+			header.WriteString("\\allsectionsfont{\\color{headingcolor}}\n")
+		}
+		if style.Body.Color != "" {
+			header.WriteString("\\AtBeginDocument{\\color{bodycolor}}\n")
+		}
+		if style.LinkColor != "" {
+			header.WriteString("\\usepackage{hyperref}\n")
+			header.WriteString("\\hypersetup{colorlinks=true,linkcolor=linkcolor,urlcolor=linkcolor}\n")
+		}
+	}
+
+	// Header/Footer setup
+	if style.HeaderFooter.HeaderTemplate != "" || style.HeaderFooter.FooterTemplate != "" {
+		header.WriteString("\n% Header/Footer\n")
+		header.WriteString("\\usepackage{fancyhdr}\n")
+		header.WriteString("\\usepackage{lastpage}\n")
+		header.WriteString("\\pagestyle{fancy}\n")
+		header.WriteString("\\fancyhf{}\n")
+
+		// Process templates for LaTeX
+		vars := CreateTemplateVariables(manifest)
+		
+		if style.HeaderFooter.HeaderTemplate != "" {
+			headerContent := ProcessTemplateForPDF(style.HeaderFooter.HeaderTemplate, vars)
+			header.WriteString(fmt.Sprintf("\\fancyhead[C]{%s}\n", headerContent))
+		}
+		
+		if style.HeaderFooter.FooterTemplate != "" {
+			footerContent := ProcessTemplateForPDF(style.HeaderFooter.FooterTemplate, vars)
+			header.WriteString(fmt.Sprintf("\\fancyfoot[C]{%s}\n", footerContent))
+		}
+	}
+
+	// Line spacing
+	if style.LineSpacing != "" && style.LineSpacing != "1" {
+		header.WriteString(fmt.Sprintf("\n%% Line spacing\n\\linespread{%s}\n", style.LineSpacing))
+	}
+
+	// Add any custom LaTeX header content
+	if style.LaTeXHeader != "" {
+		header.WriteString("\n% Custom LaTeX header\n")
+		header.WriteString(style.LaTeXHeader)
+		header.WriteString("\n")
+	}
+
+	return header.String()
+}
+
+// needsXeLaTeX determines if XeLaTeX is required for the given style
+func needsXeLaTeX(style *types.Style) bool {
+	if style == nil {
+		log.Printf("[DOCGEN FONT CHECK] Style is nil, using pdflatex\n")
+		return false
+	}
+
+	defaultFonts := []string{"Times New Roman", "Computer Modern", "Latin Modern", ""}
+	
+	log.Printf("[DOCGEN FONT CHECK] Checking fonts against defaults: %v\n", defaultFonts)
+	log.Printf("[DOCGEN FONT CHECK] Body font: '%s'\n", style.Body.FontFamily)
+	log.Printf("[DOCGEN FONT CHECK] Heading font: '%s'\n", style.Heading.FontFamily)
+	log.Printf("[DOCGEN FONT CHECK] Monospace font: '%s'\n", style.Monospace.FontFamily)
+	
+	// Check if any custom fonts are specified
+	if !contains(defaultFonts, style.Body.FontFamily) {
+		log.Printf("[DOCGEN FONT CHECK] Body font '%s' is custom, needs XeLaTeX\n", style.Body.FontFamily)
+		return true
+	}
+	if !contains(defaultFonts, style.Heading.FontFamily) {
+		log.Printf("[DOCGEN FONT CHECK] Heading font '%s' is custom, needs XeLaTeX\n", style.Heading.FontFamily)
+		return true
+	}
+	if style.Monospace.FontFamily != "" && !contains(defaultFonts, style.Monospace.FontFamily) {
+		log.Printf("[DOCGEN FONT CHECK] Monospace font '%s' is custom, needs XeLaTeX\n", style.Monospace.FontFamily)
+		return true
+	}
+	
+	log.Printf("[DOCGEN FONT CHECK] All fonts are defaults, using pdflatex\n")
+	return false
+}
+
+// hasColors checks if any colors are specified in the style
+func hasColors(style *types.Style) bool {
+	if style == nil {
+		return false
+	}
+	
+	return style.Body.Color != "" || style.Heading.Color != "" || 
+		   style.Monospace.Color != "" || style.LinkColor != ""
+}
+
+// convertColorToHex converts color format to hex (removes # prefix for LaTeX)
+func convertColorToHex(color string) string {
+	if color == "" {
+		return "000000"
+	}
+	
+	// Remove # prefix if present
+	if strings.HasPrefix(color, "#") {
+		return strings.TrimPrefix(color, "#")
+	}
+	
+	// Handle rgb() format
+	if strings.HasPrefix(color, "rgb(") {
+		// For now, return black as fallback - could implement RGB to hex conversion
+		return "000000"
+	}
+	
+	// Assume it's already in hex format without #
+	return color
+}
+
+// contains checks if a slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// determinePDFEngine determines which PDF engine to use based on style
+func determinePDFEngine(style *types.Style, pandocConfig *types.PandocConfig) string {
+	// User override takes precedence
+	if pandocConfig != nil && pandocConfig.PDFEngine != "" {
+		log.Printf("[DOCGEN PDF ENGINE] Using user-specified engine: %s\n", pandocConfig.PDFEngine)
+		return pandocConfig.PDFEngine
+	}
+	
+	// Check if custom fonts are used
+	needsXe := needsXeLaTeX(style)
+	log.Printf("[DOCGEN PDF ENGINE] Needs XeLaTeX: %t\n", needsXe)
+	if needsXe {
+		log.Printf("[DOCGEN PDF ENGINE] Using XeLaTeX for custom fonts\n")
+		return "xelatex"
+	}
+	
+	log.Printf("[DOCGEN PDF ENGINE] Using default pdflatex\n")
+	return "pdflatex"
+}
+
+// generateHTMLCSS creates CSS content for HTML export
+func generateHTMLCSS(style *types.Style, manifest *types.Manifest) string {
+	if style == nil {
+		return ""
+	}
+
+	var css strings.Builder
+
+	// Google Fonts imports (if Google Fonts are detected)
+	if needsGoogleFonts(style) {
+		css.WriteString("@import url('https://fonts.googleapis.com/css2?family=")
+		
+		fonts := make(map[string]bool)
+		if isGoogleFont(style.Body.FontFamily) {
+			fonts[strings.ReplaceAll(style.Body.FontFamily, " ", "+")] = true
+		}
+		if isGoogleFont(style.Heading.FontFamily) {
+			fonts[strings.ReplaceAll(style.Heading.FontFamily, " ", "+")] = true
+		}
+		if isGoogleFont(style.Monospace.FontFamily) {
+			fonts[strings.ReplaceAll(style.Monospace.FontFamily, " ", "+")] = true
+		}
+		
+		var fontNames []string
+		for font := range fonts {
+			fontNames = append(fontNames, font)
+		}
+		css.WriteString(strings.Join(fontNames, "&family="))
+		css.WriteString("&display=swap');\n\n")
+	}
+
+	// Body styles with document-like layout
+	css.WriteString("body {\n")
+	if style.Body.FontFamily != "" {
+		css.WriteString(fmt.Sprintf("    font-family: '%s', serif;\n", style.Body.FontFamily))
+	}
+	if style.Body.FontSize != "" {
+		css.WriteString(fmt.Sprintf("    font-size: %s;\n", style.Body.FontSize))
+	}
+	if style.Body.Color != "" {
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.Body.Color))
+	}
+	if style.LineSpacing != "" {
+		css.WriteString(fmt.Sprintf("    line-height: %s;\n", style.LineSpacing))
+	}
+	
+	// Document-like container styling
+	css.WriteString("    max-width: 8.5in;\n")
+	css.WriteString("    margin: 0 auto;\n")
+	css.WriteString("    padding: 0 1in;\n")
+	css.WriteString("    background: white;\n")
+	css.WriteString("    min-height: 100vh;\n")
+	
+	// Apply margins from style if specified
+	if style.Margins.Top != "" {
+		css.WriteString(fmt.Sprintf("    padding-top: %s;\n", style.Margins.Top))
+	}
+	if style.Margins.Bottom != "" {
+		css.WriteString(fmt.Sprintf("    padding-bottom: %s;\n", style.Margins.Bottom))
+	}
+	if style.Margins.Left != "" && style.Margins.Right != "" {
+		css.WriteString(fmt.Sprintf("    padding-left: %s;\n", style.Margins.Left))
+		css.WriteString(fmt.Sprintf("    padding-right: %s;\n", style.Margins.Right))
+	}
+	
+	css.WriteString("}\n\n")
+	
+	// Add subtle page shadow for document feel
+	css.WriteString("@media screen and (min-width: 1024px) {\n")
+	css.WriteString("    body {\n")
+	css.WriteString("        box-shadow: 0 0 20px rgba(0,0,0,0.1);\n")
+	css.WriteString("        margin-top: 2rem;\n")
+	css.WriteString("        margin-bottom: 2rem;\n")
+	css.WriteString("    }\n")
+	css.WriteString("}\n\n")
+
+	// General heading styles
+	css.WriteString("h1, h2, h3, h4, h5, h6 {\n")
+	if style.Heading.FontFamily != "" {
+		css.WriteString(fmt.Sprintf("    font-family: '%s', sans-serif;\n", style.Heading.FontFamily))
+	}
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.Heading.Color))
+	}
+	css.WriteString("    margin-top: 0;\n")
+	css.WriteString("}\n\n")
+	
+	// Chapter headings (h1) with special styling
+	css.WriteString("h1 {\n")
+	css.WriteString("    margin-top: 3em;\n")
+	css.WriteString("    margin-bottom: 1.5em;\n")
+	css.WriteString("    padding-top: 1.5em;\n")
+	css.WriteString("    border-top: 3px solid ")
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("%s;\n", style.Heading.Color))
+	} else {
+		css.WriteString("#333;\n")
+	}
+	css.WriteString("    font-size: 1.8em;\n")
+	css.WriteString("    font-weight: bold;\n")
+	css.WriteString("}\n\n")
+	
+	// First chapter should not have top border
+	css.WriteString("h1:first-of-type {\n")
+	css.WriteString("    border-top: none;\n")
+	css.WriteString("    margin-top: 1.5em;\n")
+	css.WriteString("}\n\n")
+	
+	// Section headings with better spacing
+	css.WriteString("h2 {\n")
+	css.WriteString("    margin-top: 2.5em;\n")
+	css.WriteString("    margin-bottom: 1em;\n")
+	css.WriteString("    font-size: 1.4em;\n")
+	css.WriteString("    font-weight: bold;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("h3 {\n")
+	css.WriteString("    margin-top: 2em;\n")
+	css.WriteString("    margin-bottom: 0.8em;\n")
+	css.WriteString("    font-size: 1.2em;\n")
+	css.WriteString("    font-weight: bold;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("h4, h5, h6 {\n")
+	css.WriteString("    margin-top: 1.5em;\n")
+	css.WriteString("    margin-bottom: 0.6em;\n")
+	css.WriteString("}\n\n")
+
+	// Monospace styles
+	if style.Monospace.FontFamily != "" || style.Monospace.FontSize != "" || style.Monospace.Color != "" {
+		css.WriteString("code, pre, .code {\n")
+		if style.Monospace.FontFamily != "" {
+			css.WriteString(fmt.Sprintf("    font-family: '%s', monospace;\n", style.Monospace.FontFamily))
+		}
+		if style.Monospace.FontSize != "" {
+			css.WriteString(fmt.Sprintf("    font-size: %s;\n", style.Monospace.FontSize))
+		}
+		if style.Monospace.Color != "" {
+			css.WriteString(fmt.Sprintf("    color: %s;\n", style.Monospace.Color))
+		}
+		css.WriteString("}\n\n")
+	}
+
+	// Link styles
+	if style.LinkColor != "" {
+		css.WriteString("a {\n")
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.LinkColor))
+		css.WriteString("    text-decoration: none;\n")
+		css.WriteString("}\n\n")
+		
+		css.WriteString("a:hover {\n")
+		css.WriteString("    text-decoration: underline;\n")
+		css.WriteString("}\n\n")
+	}
+	
+	// Paragraph and content styling
+	css.WriteString("p {\n")
+	css.WriteString("    margin-bottom: 1.2em;\n")
+	css.WriteString("    text-align: justify;\n")
+	css.WriteString("    line-height: inherit;\n")
+	css.WriteString("}\n\n")
+	
+	// Table of Contents styling
+	css.WriteString("#TOC {\n")
+	css.WriteString("    background: #f8f9fa;\n")
+	css.WriteString("    padding: 1.5em;\n")
+	css.WriteString("    margin: 2em 0;\n")
+	css.WriteString("    border-radius: 8px;\n")
+	css.WriteString("    border-left: 4px solid ")
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("%s;\n", style.Heading.Color))
+	} else {
+		css.WriteString("#004d65;\n")
+	}
+	css.WriteString("}\n\n")
+	
+	css.WriteString("#TOC ul {\n")
+	css.WriteString("    margin: 0;\n")
+	css.WriteString("    padding-left: 1.5em;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("#TOC li {\n")
+	css.WriteString("    margin: 0.3em 0;\n")
+	css.WriteString("}\n\n")
+	
+	// Table styling
+	css.WriteString("table {\n")
+	css.WriteString("    width: 100%;\n")
+	css.WriteString("    border-collapse: collapse;\n")
+	css.WriteString("    margin: 1.5em 0;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("th, td {\n")
+	css.WriteString("    border: 1px solid #ddd;\n")
+	css.WriteString("    padding: 0.75em;\n")
+	css.WriteString("    text-align: left;\n")
+	css.WriteString("}\n\n")
+	
+	css.WriteString("th {\n")
+	css.WriteString("    background-color: #f5f5f5;\n")
+	css.WriteString("    font-weight: bold;\n")
+	if style.Heading.Color != "" {
+		css.WriteString(fmt.Sprintf("    color: %s;\n", style.Heading.Color))
+	}
+	css.WriteString("}\n\n")
+	
+	// Responsive design for smaller screens
+	css.WriteString("@media screen and (max-width: 768px) {\n")
+	css.WriteString("    body {\n")
+	css.WriteString("        margin: 0;\n")
+	css.WriteString("        padding: 1rem;\n")
+	css.WriteString("        max-width: none;\n")
+	css.WriteString("        box-shadow: none;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h1 {\n")
+	css.WriteString("        margin-top: 2em;\n")
+	css.WriteString("        font-size: 1.5em;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h2 {\n")
+	css.WriteString("        margin-top: 1.5em;\n")
+	css.WriteString("        font-size: 1.3em;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    #TOC {\n")
+	css.WriteString("        padding: 1rem;\n")
+	css.WriteString("        margin: 1rem 0;\n")
+	css.WriteString("    }\n")
+	css.WriteString("}\n\n")
+
+	// Print styles
+	css.WriteString("@media print {\n")
+	css.WriteString("    body {\n")
+	css.WriteString("        margin: 0;\n")
+	css.WriteString("        padding: 0;\n")
+	css.WriteString("        max-width: none;\n")
+	css.WriteString("        box-shadow: none;\n")
+	css.WriteString("        background: white;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h1 {\n")
+	css.WriteString("        page-break-before: always;\n")
+	css.WriteString("    }\n")
+	css.WriteString("    \n")
+	css.WriteString("    h1:first-of-type {\n")
+	css.WriteString("        page-break-before: auto;\n")
+	css.WriteString("    }\n")
+	
+	// Print-specific headers/footers (if templates are specified)
+	if style.HeaderFooter.HeaderTemplate != "" || style.HeaderFooter.FooterTemplate != "" {
+		vars := CreateTemplateVariables(manifest)
+		
+		if style.HeaderFooter.HeaderTemplate != "" {
+			headerContent := ProcessTemplateForHTML(style.HeaderFooter.HeaderTemplate, vars)
+			css.WriteString("    \n")
+			css.WriteString("    @page {\n")
+			css.WriteString(fmt.Sprintf("        @top-center { content: '%s'; }\n", headerContent))
+			css.WriteString("    }\n")
+		}
+		
+		if style.HeaderFooter.FooterTemplate != "" {
+			footerContent := ProcessTemplateForHTML(style.HeaderFooter.FooterTemplate, vars)
+			css.WriteString("    \n") 
+			css.WriteString("    @page {\n")
+			css.WriteString(fmt.Sprintf("        @bottom-center { content: '%s'; }\n", footerContent))
+			css.WriteString("    }\n")
+		}
+	}
+	
+	css.WriteString("}\n")
+
+	return css.String()
+}
+
+// needsGoogleFonts checks if any Google Fonts are used
+func needsGoogleFonts(style *types.Style) bool {
+	return isGoogleFont(style.Body.FontFamily) || 
+		   isGoogleFont(style.Heading.FontFamily) || 
+		   isGoogleFont(style.Monospace.FontFamily)
+}
+
+// isGoogleFont checks if a font name is likely a Google Font
+func isGoogleFont(fontName string) bool {
+	if fontName == "" {
+		return false
+	}
+	
+	// Basic heuristic: Google Fonts typically have specific naming patterns
+	// For now, we'll include common ones and exclude system fonts
+	systemFonts := []string{
+		"Times New Roman", "Arial", "Helvetica", "Georgia", "Verdana",
+		"Courier New", "Comic Sans MS", "Impact", "Trebuchet MS",
+		"Computer Modern", "Latin Modern",
+	}
+	
+	for _, sysFont := range systemFonts {
+		if strings.EqualFold(fontName, sysFont) {
+			return false
+		}
+	}
+	
+	// If it's not a known system font, assume it might be a Google Font
+	return true
+}
+

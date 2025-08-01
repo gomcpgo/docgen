@@ -136,14 +136,35 @@ type Manifest struct {
 	UpdatedAt     time.Time                   `yaml:"updated_at"`
 }
 
+// TextStyle represents font and color settings for text elements
+type TextStyle struct {
+	FontFamily string `yaml:"font_family"`
+	FontSize   string `yaml:"font_size,omitempty"`
+	Color      string `yaml:"color,omitempty"`
+}
+
 // Style represents document styling configuration
 type Style struct {
-	FontFamily    string `yaml:"font_family"`
-	FontSize      string `yaml:"font_size"`
-	Margins       Margins `yaml:"margins"`
-	LineSpacing   string `yaml:"line_spacing"`
-	HeaderFooter  HeaderFooter `yaml:"header_footer"`
+	// Text styles
+	Body          TextStyle      `yaml:"body"`
+	Heading       TextStyle      `yaml:"heading"`
+	Monospace     TextStyle      `yaml:"monospace,omitempty"`
+	
+	// Global styles
+	LinkColor     string         `yaml:"link_color,omitempty"`
+	Margins       Margins        `yaml:"margins"`
+	LineSpacing   string         `yaml:"line_spacing,omitempty"`
+	
+	// Header/Footer with template support
+	HeaderFooter  HeaderFooter   `yaml:"header_footer"`
+	
+	// Other settings
 	NumberingStyle NumberingStyle `yaml:"numbering_style"`
+	
+	// Output-specific templates
+	ReferenceDocx string         `yaml:"reference_docx,omitempty"`
+	StyleCSS      string         `yaml:"style_css,omitempty"`
+	LaTeXHeader   string         `yaml:"latex_header,omitempty"`
 }
 
 // Margins represents document margins
@@ -156,8 +177,8 @@ type Margins struct {
 
 // HeaderFooter represents header and footer configuration
 type HeaderFooter struct {
-	Header string `yaml:"header"`
-	Footer string `yaml:"footer"`
+	HeaderTemplate string `yaml:"header_template,omitempty"`
+	FooterTemplate string `yaml:"footer_template,omitempty"`
 }
 
 // NumberingStyle represents numbering preferences
@@ -309,8 +330,21 @@ func NewSectionNumber(parts ...int) SectionNumber {
 // DefaultStyle returns default document styling
 func DefaultStyle() Style {
 	return Style{
-		FontFamily:  "Times New Roman",
-		FontSize:    "12pt",
+		Body: TextStyle{
+			FontFamily: "Times New Roman",
+			FontSize:   "12pt",
+			Color:      "#000000",
+		},
+		Heading: TextStyle{
+			FontFamily: "Times New Roman",
+			Color:      "#000000",
+		},
+		Monospace: TextStyle{
+			FontFamily: "Courier New",
+			FontSize:   "10pt",
+			Color:      "#000000",
+		},
+		LinkColor:   "#0000FF",
 		LineSpacing: "1.5",
 		Margins: Margins{
 			Top:    "1in",
@@ -319,8 +353,8 @@ func DefaultStyle() Style {
 			Right:  "1in",
 		},
 		HeaderFooter: HeaderFooter{
-			Header: "",
-			Footer: "Page \\thepage",
+			HeaderTemplate: "",
+			FooterTemplate: "Page {page}",
 		},
 		NumberingStyle: NumberingStyle{
 			Chapters: true,
@@ -328,6 +362,9 @@ func DefaultStyle() Style {
 			Figures:  true,
 			Tables:   true,
 		},
+		ReferenceDocx: "",
+		StyleCSS:      "",
+		LaTeXHeader:   "",
 	}
 }
 
@@ -341,4 +378,166 @@ func DefaultPandocConfig() PandocConfig {
 		Args:          []string{},
 		Variables:     make(map[string]string),
 	}
+}
+
+// StyleValidation represents style validation results
+type StyleValidation struct {
+	Errors   []string `yaml:"errors"`   // Fatal errors that prevent export
+	Warnings []string `yaml:"warnings"` // Non-fatal issues with fallbacks
+}
+
+// IsValid returns true if there are no fatal errors
+func (v *StyleValidation) IsValid() bool {
+	return len(v.Errors) == 0
+}
+
+// AddError adds a fatal error to the validation result
+func (v *StyleValidation) AddError(message string) {
+	v.Errors = append(v.Errors, message)
+}
+
+// AddWarning adds a warning to the validation result
+func (v *StyleValidation) AddWarning(message string) {
+	v.Warnings = append(v.Warnings, message)
+}
+
+// ValidateStyle validates a style configuration
+func ValidateStyle(style *Style) *StyleValidation {
+	if style == nil {
+		return &StyleValidation{}
+	}
+
+	validation := &StyleValidation{}
+
+	// Validate colors
+	validateColor(style.Body.Color, "body color", validation)
+	validateColor(style.Heading.Color, "heading color", validation)
+	validateColor(style.Monospace.Color, "monospace color", validation)
+	validateColor(style.LinkColor, "link color", validation)
+
+	// Validate font sizes
+	validateFontSize(style.Body.FontSize, "body font size", validation)
+	validateFontSize(style.Heading.FontSize, "heading font size", validation)
+	validateFontSize(style.Monospace.FontSize, "monospace font size", validation)
+
+	// Validate line spacing
+	if style.LineSpacing != "" {
+		if !isValidLineSpacing(style.LineSpacing) {
+			validation.AddWarning(fmt.Sprintf("Invalid line spacing '%s', using default 1.5", style.LineSpacing))
+		}
+	}
+
+	// Validate margins
+	validateMargin(style.Margins.Top, "top margin", validation)
+	validateMargin(style.Margins.Bottom, "bottom margin", validation)
+	validateMargin(style.Margins.Left, "left margin", validation)
+	validateMargin(style.Margins.Right, "right margin", validation)
+
+	// Validate template strings (using the template package functions)
+	if style.HeaderFooter.HeaderTemplate != "" {
+		if warnings := validateTemplateString(style.HeaderFooter.HeaderTemplate); len(warnings) > 0 {
+			for _, warning := range warnings {
+				validation.AddWarning(fmt.Sprintf("Header template: %s", warning))
+			}
+		}
+	}
+
+	if style.HeaderFooter.FooterTemplate != "" {
+		if warnings := validateTemplateString(style.HeaderFooter.FooterTemplate); len(warnings) > 0 {
+			for _, warning := range warnings {
+				validation.AddWarning(fmt.Sprintf("Footer template: %s", warning))
+			}
+		}
+	}
+
+	return validation
+}
+
+// validateColor checks if a color format is valid
+func validateColor(color, fieldName string, validation *StyleValidation) {
+	if color == "" {
+		return
+	}
+
+	// Check for hex color format
+	hexPattern := regexp.MustCompile(`^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$`)
+	if hexPattern.MatchString(color) {
+		return
+	}
+
+	// Check for RGB format
+	rgbPattern := regexp.MustCompile(`^rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)$`)
+	if rgbPattern.MatchString(color) {
+		return
+	}
+
+	validation.AddWarning(fmt.Sprintf("Invalid %s format '%s', using default black", fieldName, color))
+}
+
+// validateFontSize checks if a font size is valid
+func validateFontSize(fontSize, fieldName string, validation *StyleValidation) {
+	if fontSize == "" {
+		return
+	}
+
+	// Check for valid units: pt, px, em, rem, %
+	sizePattern := regexp.MustCompile(`^\d+(\.\d+)?(pt|px|em|rem|%)$`)
+	if !sizePattern.MatchString(fontSize) {
+		validation.AddWarning(fmt.Sprintf("Invalid %s format '%s', should include unit (pt, px, em, rem, %%)", fieldName, fontSize))
+	}
+}
+
+// validateMargin checks if a margin value is valid
+func validateMargin(margin, fieldName string, validation *StyleValidation) {
+	if margin == "" {
+		return
+	}
+
+	// Check for valid units: in, cm, mm, pt, px
+	marginPattern := regexp.MustCompile(`^\d+(\.\d+)?(in|cm|mm|pt|px)$`)
+	if !marginPattern.MatchString(margin) {
+		validation.AddWarning(fmt.Sprintf("Invalid %s format '%s', should include unit (in, cm, mm, pt, px)", fieldName, margin))
+	}
+}
+
+// isValidLineSpacing checks if line spacing value is valid
+func isValidLineSpacing(spacing string) bool {
+	// Allow decimal numbers (1.5, 2.0, etc.)
+	spacingPattern := regexp.MustCompile(`^\d+(\.\d+)?$`)
+	return spacingPattern.MatchString(spacing)
+}
+
+// validateTemplateString validates template variable syntax
+func validateTemplateString(template string) []string {
+	var warnings []string
+	
+	validVariables := map[string]bool{
+		"{page}":           true,
+		"{total_pages}":    true,
+		"{chapter_title}":  true,
+		"{chapter_number}": true,
+		"{document_title}": true,
+		"{author}":         true,
+		"{date}":          true,
+		"{section_title}":  true,
+	}
+
+	// Find all {variable} patterns
+	for i := 0; i < len(template); i++ {
+		if template[i] == '{' {
+			// Find closing brace
+			end := strings.Index(template[i:], "}")
+			if end == -1 {
+				warnings = append(warnings, fmt.Sprintf("Unclosed variable at position %d", i))
+				continue
+			}
+			
+			variable := template[i : i+end+1]
+			if !validVariables[variable] {
+				warnings = append(warnings, fmt.Sprintf("Unknown template variable: %s", variable))
+			}
+		}
+	}
+
+	return warnings
 }
