@@ -224,6 +224,41 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 				docDir := filepath.Dir(e.config.ManifestPath(documentID))
 				referenceDoc = filepath.Join(docDir, style.ReferenceDocx)
 			}
+		} else if style != nil {
+			// Apply Typography settings using Pandoc variables for DOCX
+			// Note: This provides basic font support, but full styling requires a custom reference.docx
+			
+			// Set main font
+			if style.Body.FontFamily != "" {
+				args = append(args, "-V", fmt.Sprintf("mainfont=%s", style.Body.FontFamily))
+			}
+			
+			// Set font size
+			if style.Body.FontSize != "" {
+				args = append(args, "-V", fmt.Sprintf("fontsize=%s", style.Body.FontSize))
+			}
+			
+			// Set line spacing (convert to Word format)
+			if style.LineSpacing != "" {
+				// Convert CSS line-spacing to Word format
+				switch style.LineSpacing {
+				case "1.0":
+					args = append(args, "-V", "linestretch=1")
+				case "1.15":
+					args = append(args, "-V", "linestretch=1.15") 
+				case "1.5":
+					args = append(args, "-V", "linestretch=1.5")
+				case "2.0":
+					args = append(args, "-V", "linestretch=2")
+				default:
+					args = append(args, "-V", fmt.Sprintf("linestretch=%s", style.LineSpacing))
+				}
+			}
+			
+			// Set margins (convert to Word format if needed)
+			if style.Margins.Top != "" {
+				args = append(args, "-V", fmt.Sprintf("geometry:margin=%s", style.Margins.Top))
+			}
 		}
 		args = append(args, "--reference-doc", referenceDoc)
 		
@@ -794,3 +829,4 @@ func isGoogleFont(fontName string) bool {
 	// If it's not a known system font, assume it might be a Google Font
 	return true
 }
+
