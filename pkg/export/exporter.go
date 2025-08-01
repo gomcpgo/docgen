@@ -67,8 +67,22 @@ func (e *Exporter) ExportDocument(documentID string, manifest *types.Manifest, s
 		return "", fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	// Create temporary CSS file for HTML export if needed
+	var tempCSSFile string
+	if options.Format == types.ExportFormatHTML && style != nil {
+		cssContent := generateHTMLCSS(style, manifest)
+		if cssContent != "" {
+			tempCSSFile = filepath.Join(os.TempDir(), fmt.Sprintf("%s-style.css", documentID))
+			if err := os.WriteFile(tempCSSFile, []byte(cssContent), 0644); err != nil {
+				return "", fmt.Errorf("failed to create temporary CSS file: %w", err)
+			}
+			defer os.Remove(tempCSSFile)
+			log.Printf("[DOCGEN HTML] Created temporary CSS file: %s", tempCSSFile)
+		}
+	}
+
 	// Generate pandoc command
-	cmd := e.GeneratePandocCommand(documentID, tempInputFile, outputFile, manifest, style, pandocConfig, options)
+	cmd := e.GeneratePandocCommand(documentID, tempInputFile, outputFile, manifest, style, pandocConfig, options, tempCSSFile)
 
 	// Command is ready for execution
 
@@ -177,7 +191,7 @@ func (e *Exporter) GenerateMarkdown(documentID string, manifest *types.Manifest,
 }
 
 // GeneratePandocCommand creates the pandoc command with all necessary options
-func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions) *exec.Cmd {
+func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile string, manifest *types.Manifest, style *types.Style, pandocConfig *types.PandocConfig, options *types.ExportOptions, tempCSSFile string) *exec.Cmd {
 	args := []string{
 		inputFile,
 		"-o", outputFile,
@@ -298,11 +312,12 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 		
 	case types.ExportFormatHTML:
 		args = append(args, "--standalone")
+		args = append(args, "--embed-resources") // Embed CSS and other resources directly in HTML
 		
 		// Use custom CSS if specified
-		cssFile := "style.css" // default
 		if style != nil && style.StyleCSS != "" {
 			// Resolve CSS file path
+			var cssFile string
 			if filepath.IsAbs(style.StyleCSS) {
 				cssFile = style.StyleCSS
 			} else {
@@ -310,26 +325,12 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 				docDir := filepath.Dir(e.config.ManifestPath(documentID))
 				cssFile = filepath.Join(docDir, style.StyleCSS)
 			}
-		} else if style != nil {
-			// Generate CSS file with style specifications
-			cssContent := generateHTMLCSS(style, manifest)
-			if cssContent != "" {
-				// Create CSS file in export directory (same as HTML file)
-				exportDir := filepath.Dir(outputFile)
-				cssFileName := fmt.Sprintf("%s.css", documentID)
-				cssFilePath := filepath.Join(exportDir, cssFileName)
-				
-				log.Printf("[DOCGEN HTML] Creating CSS file: %s", cssFilePath)
-				if err := os.WriteFile(cssFilePath, []byte(cssContent), 0644); err == nil {
-					// Use relative path for HTML reference
-					cssFile = cssFileName
-					log.Printf("[DOCGEN HTML] CSS file created successfully, using relative reference: %s", cssFile)
-				} else {
-					log.Printf("[DOCGEN HTML] Failed to create CSS file: %v", err)
-				}
-			}
+			args = append(args, "--css", cssFile)
+		} else if tempCSSFile != "" {
+			// Use the temporary CSS file created in the main export function
+			args = append(args, "--css", tempCSSFile)
+			log.Printf("[DOCGEN HTML] Using temporary CSS file: %s", tempCSSFile)
 		}
-		args = append(args, "--css", cssFile)
 	}
 
 	// Add table of contents if enabled

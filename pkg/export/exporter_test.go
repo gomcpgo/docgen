@@ -126,7 +126,7 @@ func TestExporter_GeneratePandocCommand(t *testing.T) {
 	inputFile := filepath.Join(tempDir, "input.md")
 	outputFile := filepath.Join(tempDir, "output.pdf")
 
-	cmd := exporter.GeneratePandocCommand("test-doc", inputFile, outputFile, manifest, style, pandocConfig, options)
+	cmd := exporter.GeneratePandocCommand("test-doc", inputFile, outputFile, manifest, style, pandocConfig, options, "")
 
 	// Check basic command structure (path might be full path to pandoc)
 	if !strings.Contains(cmd.Path, "pandoc") {
