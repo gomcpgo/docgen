@@ -231,7 +231,9 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 		
 	case types.ExportFormatDOCX:
 		// Use custom reference document if specified
-		referenceDoc := "reference.docx" // default
+		var referenceDoc string
+		useReferenceDoc := false
+		
 		if style != nil && style.ReferenceDocx != "" {
 			// Resolve reference document path
 			if filepath.IsAbs(style.ReferenceDocx) {
@@ -241,9 +243,20 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 				docDir := filepath.Dir(e.config.ManifestPath(documentID))
 				referenceDoc = filepath.Join(docDir, style.ReferenceDocx)
 			}
-		} else if style != nil {
+			
+			// Check if the reference document exists
+			if _, err := os.Stat(referenceDoc); err == nil {
+				useReferenceDoc = true
+				log.Printf("[DOCGEN DOCX] Using custom reference document: %s", referenceDoc)
+			} else {
+				log.Printf("[DOCGEN DOCX] Custom reference document not found: %s", referenceDoc)
+			}
+		}
+		
+		if !useReferenceDoc && style != nil {
 			// Apply Typography settings using Pandoc variables for DOCX
 			// Note: This provides basic font support, but full styling requires a custom reference.docx
+			log.Printf("[DOCGEN DOCX] Using Pandoc variables for basic styling (no reference document)")
 			
 			// Set main font
 			if style.Body.FontFamily != "" {
@@ -277,7 +290,11 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 				args = append(args, "-V", fmt.Sprintf("geometry:margin=%s", style.Margins.Top))
 			}
 		}
-		args = append(args, "--reference-doc", referenceDoc)
+		
+		// Only add reference document if one exists and is specified
+		if useReferenceDoc {
+			args = append(args, "--reference-doc", referenceDoc)
+		}
 		
 	case types.ExportFormatHTML:
 		args = append(args, "--standalone")
