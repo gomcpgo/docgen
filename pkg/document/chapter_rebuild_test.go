@@ -83,6 +83,9 @@ func (m *MockStorage) SaveManifest(documentID string, manifest *types.Manifest) 
 func (m *MockStorage) LoadManifest(documentID string) (*types.Manifest, error)                    { return nil, nil }
 func (m *MockStorage) SaveStyle(documentID string, style *types.Style) error                      { return nil }
 func (m *MockStorage) LoadStyle(documentID string) (*types.Style, error)                          { return nil, nil }
+func (m *MockStorage) SaveStyleByName(styleName string, style *types.Style) error                { return nil }
+func (m *MockStorage) LoadStyleByName(styleName string) (*types.Style, error)                    { return nil, nil }
+func (m *MockStorage) EnsureDefaultStyle() error                                                  { return nil }
 func (m *MockStorage) SavePandocConfig(documentID string, config *types.PandocConfig) error       { return nil }
 func (m *MockStorage) LoadPandocConfig(documentID string) (*types.PandocConfig, error)            { return nil, nil }
 func (m *MockStorage) LoadChapterContent(documentID string, chapterNumber int) (string, error)    { return "", nil }

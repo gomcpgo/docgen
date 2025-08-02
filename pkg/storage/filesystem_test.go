@@ -60,11 +60,8 @@ func TestFileSystemStorage_CreateDocumentStructure(t *testing.T) {
 		t.Errorf("Manifest file not created: %s", manifestPath)
 	}
 
-	// Check if style file exists
-	stylePath := cfg.StylePath(string(docID))
-	if _, err := os.Stat(stylePath); os.IsNotExist(err) {
-		t.Errorf("Style file not created: %s", stylePath)
-	}
+	// Note: Document-specific style files are no longer created
+	// Styles are now managed centrally in the styles/ folder
 
 	// Check if pandoc config file exists
 	pandocPath := cfg.PandocConfigPath(string(docID))
