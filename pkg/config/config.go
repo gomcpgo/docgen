@@ -55,8 +55,8 @@ func LoadConfig() (*Config, error) {
 		cfg.PandocPath = val
 	}
 	
-	// DOCGEN_DEFAULT_STYLE (optional)
-	if val := os.Getenv("DOCGEN_DEFAULT_STYLE"); val != "" {
+	// DOCGEN_CURRENT_STYLE (optional) - replaces DOCGEN_DEFAULT_STYLE
+	if val := os.Getenv("DOCGEN_CURRENT_STYLE"); val != "" {
 		cfg.DefaultStylePath = val
 	}
 	
@@ -179,4 +179,14 @@ func (c *Config) SectionsPath(documentID string, chapterNumber int) string {
 // SectionPath returns the full path to a specific section file
 func (c *Config) SectionPath(documentID string, chapterNumber int, sectionNumber string) string {
 	return filepath.Join(c.SectionsPath(documentID, chapterNumber), fmt.Sprintf("%s.md", sectionNumber))
+}
+
+// StylesPath returns the full path to the styles directory
+func (c *Config) StylesPath() string {
+	return filepath.Join(c.RootDir, "styles")
+}
+
+// StyleByNamePath returns the full path to a style file by name
+func (c *Config) StyleByNamePath(styleName string) string {
+	return filepath.Join(c.StylesPath(), fmt.Sprintf("%s.yaml", styleName))
 }

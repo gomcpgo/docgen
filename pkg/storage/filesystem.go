@@ -27,9 +27,14 @@ type Storage interface {
 	SaveManifest(documentID string, manifest *types.Manifest) error
 	LoadManifest(documentID string) (*types.Manifest, error)
 
-	// Style operations
+	// Style operations (document-specific - deprecated)
 	SaveStyle(documentID string, style *types.Style) error
 	LoadStyle(documentID string) (*types.Style, error)
+	
+	// Style operations (by name in styles folder)
+	SaveStyleByName(styleName string, style *types.Style) error
+	LoadStyleByName(styleName string) (*types.Style, error)
+	EnsureDefaultStyle() error
 
 	// Pandoc config operations
 	SavePandocConfig(documentID string, config *types.PandocConfig) error
@@ -95,11 +100,8 @@ func (fs *FileSystemStorage) CreateDocumentStructure(doc *types.Document) error 
 		return fmt.Errorf("failed to create manifest: %w", err)
 	}
 
-	// Create default style
-	style := types.DefaultStyle()
-	if err := fs.SaveStyle(docID, &style); err != nil {
-		return fmt.Errorf("failed to create style file: %w", err)
-	}
+	// Note: Document-specific styles are no longer created
+	// Styles are now managed globally in the styles/ folder
 
 	// Create default pandoc config
 	pandocConfig := types.DefaultPandocConfig()
@@ -370,5 +372,45 @@ func (fs *FileSystemStorage) CreateSectionsDirectory(documentID string, chapterN
 	if err := os.MkdirAll(sectionsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create sections directory: %w", err)
 	}
+	return nil
+}
+
+// SaveStyleByName saves a style by name to the styles folder
+func (fs *FileSystemStorage) SaveStyleByName(styleName string, style *types.Style) error {
+	stylePath := fs.config.StyleByNamePath(styleName)
+	return fs.saveYAMLFile(stylePath, style)
+}
+
+// LoadStyleByName loads a style by name from the styles folder
+func (fs *FileSystemStorage) LoadStyleByName(styleName string) (*types.Style, error) {
+	stylePath := fs.config.StyleByNamePath(styleName)
+	var style types.Style
+	if err := fs.loadYAMLFile(stylePath, &style); err != nil {
+		return nil, err
+	}
+	return &style, nil
+}
+
+// EnsureDefaultStyle creates the default style if it doesn't exist
+func (fs *FileSystemStorage) EnsureDefaultStyle() error {
+	defaultStylePath := fs.config.StyleByNamePath("default")
+	
+	// Check if default style already exists
+	if _, err := os.Stat(defaultStylePath); err == nil {
+		return nil // Already exists
+	}
+	
+	// Create styles directory if it doesn't exist
+	stylesDir := fs.config.StylesPath()
+	if err := os.MkdirAll(stylesDir, 0755); err != nil {
+		return fmt.Errorf("failed to create styles directory: %w", err)
+	}
+	
+	// Create default style
+	defaultStyle := types.DefaultStyle()
+	if err := fs.SaveStyleByName("default", &defaultStyle); err != nil {
+		return fmt.Errorf("failed to create default style: %w", err)
+	}
+	
 	return nil
 }

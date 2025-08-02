@@ -659,79 +659,42 @@ func runDirectExport(exportSpec string, customStyleFile string) {
 
 	fmt.Printf("✅ Document structure retrieved successfully\n")
 
-	// Handle custom style file if provided
-	var customStyle *types.Style
+	// Handle custom style if provided
 	if customStyleFile != "" {
-		fmt.Printf("\n🎨 Loading custom style file: %s\n", customStyleFile)
-		loadedStyle, err := loadCustomStyleFile(customStyleFile)
-		if err != nil {
-			log.Fatalf("Failed to load custom style file: %v", err)
-		}
-		customStyle = loadedStyle
-		fmt.Printf("✅ Custom style loaded successfully\n")
-		fmt.Printf("  Body Font: %s, Size: %s, Color: %s\n", customStyle.Body.FontFamily, customStyle.Body.FontSize, customStyle.Body.Color)
-		fmt.Printf("  Heading Font: %s, Color: %s\n", customStyle.Heading.FontFamily, customStyle.Heading.Color)
-		fmt.Printf("  Monospace Font: %s, Size: %s, Color: %s\n", customStyle.Monospace.FontFamily, customStyle.Monospace.FontSize, customStyle.Monospace.Color)
+		fmt.Printf("\n🎨 Using custom style: %s\n", customStyleFile)
+		// Set DOCGEN_CURRENT_STYLE to use the enhanced resolution logic
+		os.Setenv("DOCGEN_CURRENT_STYLE", customStyleFile)
 	}
 
-	// Export the document
+	// Export the document using MCP handler (which now supports enhanced style resolution)
 	fmt.Printf("\n🚀 Exporting document to %s...\n", format)
 	
-	var outputPath string
-	if customStyle != nil {
-		// Use direct exporter with custom style
-		fmt.Printf("📝 Using custom style for export\n")
-		
-		// Load document manifest 
-		manifest, err := handler.GetManager().GetDocumentStructure(types.DocumentID(docID))
-		if err != nil {
-			log.Fatalf("Failed to load document manifest: %v", err)
-		}
-		
-		// Load default pandoc config (or could be customized later)
-		pandocConfig, _ := handler.GetStorage().LoadPandocConfig(string(docID))
-		
-		// Create export options
-		options := &types.ExportOptions{
-			Format:   types.ExportFormat(format),
-			Chapters: []types.ChapterNumber{}, // empty means all chapters
-		}
-		
-		// Export directly with custom style
-		outputPath, err = handler.GetExporter().ExportDocument(string(docID), manifest, customStyle, pandocConfig, options, handler.GetManager().RebuildChapterMarkdown)
-		if err != nil {
-			log.Fatalf("Failed to export document with custom style: %v", err)
-		}
-	} else {
-		// Use standard MCP handler export
-		exportParams := map[string]interface{}{
-			"document_id": docID,
-			"format":      format,
-		}
+	exportParams := map[string]interface{}{
+		"document_id": docID,
+		"format":      format,
+	}
 
-		exportResponse, err := handler.CallTool(nil, &protocol.CallToolRequest{
-			Name:      "export_document",
-			Arguments: exportParams,
-		})
-		if err != nil {
-			log.Fatalf("Failed to export document: %v", err)
-		}
+	exportResponse, err := handler.CallTool(nil, &protocol.CallToolRequest{
+		Name:      "export_document",
+		Arguments: exportParams,
+	})
+	if err != nil {
+		log.Fatalf("Failed to export document: %v", err)
+	}
 
-		if exportResponse.IsError {
-			log.Fatalf("Error exporting document: %s", exportResponse.Content[0].Text)
-		}
+	if exportResponse.IsError {
+		log.Fatalf("Error exporting document: %s", exportResponse.Content[0].Text)
+	}
 
-		// Parse export response
-		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(exportResponse.Content[0].Text), &result); err != nil {
-			log.Fatalf("Failed to parse export response: %v", err)
-		}
+	// Parse export response
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(exportResponse.Content[0].Text), &result); err != nil {
+		log.Fatalf("Failed to parse export response: %v", err)
+	}
 
-		var ok bool
-		outputPath, ok = result["output_path"].(string)
-		if !ok {
-			log.Fatalf("Failed to extract output_path from export response")
-		}
+	outputPath, ok := result["output_path"].(string)
+	if !ok {
+		log.Fatalf("Failed to extract output_path from export response")
 	}
 
 	// Check if exported file exists and get its size
