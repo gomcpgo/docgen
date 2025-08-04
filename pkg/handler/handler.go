@@ -54,6 +54,8 @@ func (h *DocGenHandler) GetStorage() storage.Storage {
 func (h *DocGenHandler) CallTool(ctx context.Context, req *protocol.CallToolRequest) (*protocol.CallToolResponse, error) {
 	switch req.Name {
 	// Document operations
+	case "list_documents":
+		return h.handleListDocuments(req.Arguments)
 	case "create_document":
 		return h.handleCreateDocument(req.Arguments)
 	case "get_document_structure":
@@ -74,6 +76,10 @@ func (h *DocGenHandler) CallTool(ctx context.Context, req *protocol.CallToolRequ
 		return h.handleDeleteChapter(req.Arguments)
 	case "move_chapter":
 		return h.handleMoveChapter(req.Arguments)
+	case "get_chapter_content":
+		return h.handleGetChapterContent(req.Arguments)
+	case "update_chapter_content":
+		return h.handleUpdateChapterContent(req.Arguments)
 
 	// Section operations
 	case "add_section":

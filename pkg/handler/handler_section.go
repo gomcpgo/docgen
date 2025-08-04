@@ -49,6 +49,7 @@ func (h *DocGenHandler) handleAddSection(params map[string]interface{}) (*protoc
 	}
 
 	return h.successResponse(map[string]interface{}{
+		"document_id":    docID,
 		"section_number": sectionNum.String(),
 		"message":        fmt.Sprintf("Section '%s' added successfully to chapter %d", title, chapterNum),
 	})
@@ -92,6 +93,7 @@ func (h *DocGenHandler) handleUpdateSection(params map[string]interface{}) (*pro
 	}
 
 	return h.successResponse(map[string]interface{}{
+		"document_id":    docID,
 		"section_number": sectionNumStr,
 		"message":        fmt.Sprintf("Section %s updated successfully", sectionNumStr),
 	})
@@ -129,6 +131,7 @@ func (h *DocGenHandler) handleDeleteSection(params map[string]interface{}) (*pro
 	}
 
 	return h.successResponse(map[string]interface{}{
+		"document_id":    docID,
 		"section_number": sectionNumStr,
 		"message":        fmt.Sprintf("Section %s deleted successfully", sectionNumStr),
 	})

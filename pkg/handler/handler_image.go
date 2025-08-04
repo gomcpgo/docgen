@@ -47,8 +47,9 @@ func (h *DocGenHandler) handleAddImage(params map[string]interface{}) (*protocol
 	}
 
 	return h.successResponse(map[string]interface{}{
-		"figure_id": figureID,
-		"message":   fmt.Sprintf("Image added successfully with ID %s", figureID),
+		"document_id": docID,
+		"figure_id":   figureID,
+		"message":     fmt.Sprintf("Image added successfully with ID %s", figureID),
 	})
 }
 
@@ -78,8 +79,9 @@ func (h *DocGenHandler) handleUpdateImageCaption(params map[string]interface{}) 
 	}
 
 	return h.successResponse(map[string]interface{}{
-		"figure_id": figureID,
-		"message":   fmt.Sprintf("Image caption updated successfully for %s", figureID),
+		"document_id": docID,
+		"figure_id":   figureID,
+		"message":     fmt.Sprintf("Image caption updated successfully for %s", figureID),
 	})
 }
 
@@ -103,7 +105,8 @@ func (h *DocGenHandler) handleDeleteImage(params map[string]interface{}) (*proto
 	}
 
 	return h.successResponse(map[string]interface{}{
-		"figure_id": figureID,
-		"message":   fmt.Sprintf("Image %s deleted successfully", figureID),
+		"document_id": docID,
+		"figure_id":   figureID,
+		"message":     fmt.Sprintf("Image %s deleted successfully", figureID),
 	})
 }
