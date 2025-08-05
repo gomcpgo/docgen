@@ -64,153 +64,153 @@ const (
 
 // Document represents a complete document
 type Document struct {
-	ID          DocumentID    `yaml:"id"`
-	Title       string        `yaml:"title"`
-	Author      string        `yaml:"author"`
-	Type        DocumentType  `yaml:"type"`
-	CreatedAt   time.Time     `yaml:"created_at"`
-	UpdatedAt   time.Time     `yaml:"updated_at"`
-	Chapters    []Chapter     `yaml:"chapters"`
+	ID          DocumentID    `yaml:"id" json:"id"`
+	Title       string        `yaml:"title" json:"title"`
+	Author      string        `yaml:"author" json:"author"`
+	Type        DocumentType  `yaml:"type" json:"type"`
+	CreatedAt   time.Time     `yaml:"created_at" json:"created_at"`
+	UpdatedAt   time.Time     `yaml:"updated_at" json:"updated_at"`
+	Chapters    []Chapter     `yaml:"chapters" json:"chapters"`
 }
 
 // Chapter represents a document chapter
 type Chapter struct {
-	Number    ChapterNumber `yaml:"number"`
-	Title     string        `yaml:"title"`
-	Content   string        `yaml:"-"` // Stored in separate file
-	Sections  []Section     `yaml:"sections"`
-	Figures   []Figure      `yaml:"figures"`
-	Tables    []Table       `yaml:"tables"`
-	CreatedAt time.Time     `yaml:"created_at"`
-	UpdatedAt time.Time     `yaml:"updated_at"`
+	Number    ChapterNumber `yaml:"number" json:"number"`
+	Title     string        `yaml:"title" json:"title"`
+	Content   string        `yaml:"-" json:"content,omitempty"` // Stored in separate file
+	Sections  []Section     `yaml:"sections" json:"sections"`
+	Figures   []Figure      `yaml:"figures" json:"figures"`
+	Tables    []Table       `yaml:"tables" json:"tables"`
+	CreatedAt time.Time     `yaml:"created_at" json:"created_at"`
+	UpdatedAt time.Time     `yaml:"updated_at" json:"updated_at"`
 }
 
 // Section represents a document section
 type Section struct {
-	Number    SectionNumber `yaml:"number"`
-	Title     string        `yaml:"title"`
-	Content   string        `yaml:"content"`
-	Level     int           `yaml:"level"` // 1, 2, 3 for different heading levels
-	CreatedAt time.Time     `yaml:"created_at"`
-	UpdatedAt time.Time     `yaml:"updated_at"`
+	Number    SectionNumber `yaml:"number" json:"number"`
+	Title     string        `yaml:"title" json:"title"`
+	Content   string        `yaml:"content" json:"content"`
+	Level     int           `yaml:"level" json:"level"` // 1, 2, 3 for different heading levels
+	CreatedAt time.Time     `yaml:"created_at" json:"created_at"`
+	UpdatedAt time.Time     `yaml:"updated_at" json:"updated_at"`
 }
 
 // Figure represents an image figure
 type Figure struct {
-	ID        FigureID       `yaml:"id"`
-	Chapter   ChapterNumber  `yaml:"chapter"`
-	Sequence  int            `yaml:"sequence"`
-	Caption   string         `yaml:"caption"`
-	ImagePath string         `yaml:"image_path"`
-	Position  ImagePosition  `yaml:"position"`
-	Width     string         `yaml:"width,omitempty"`
-	Alignment ImageAlignment `yaml:"alignment"`
-	CreatedAt time.Time      `yaml:"created_at"`
-	UpdatedAt time.Time      `yaml:"updated_at"`
+	ID        FigureID       `yaml:"id" json:"id"`
+	Chapter   ChapterNumber  `yaml:"chapter" json:"chapter"`
+	Sequence  int            `yaml:"sequence" json:"sequence"`
+	Caption   string         `yaml:"caption" json:"caption"`
+	ImagePath string         `yaml:"image_path" json:"image_path"`
+	Position  ImagePosition  `yaml:"position" json:"position"`
+	Width     string         `yaml:"width,omitempty" json:"width,omitempty"`
+	Alignment ImageAlignment `yaml:"alignment" json:"alignment"`
+	CreatedAt time.Time      `yaml:"created_at" json:"created_at"`
+	UpdatedAt time.Time      `yaml:"updated_at" json:"updated_at"`
 }
 
 // Table represents a document table
 type Table struct {
-	ID        TableID       `yaml:"id"`
-	Chapter   ChapterNumber `yaml:"chapter"`
-	Sequence  int           `yaml:"sequence"`
-	Caption   string        `yaml:"caption"`
-	Content   string        `yaml:"content"` // Markdown table content
-	Format    string        `yaml:"format"`  // "markdown" for MVP
-	CreatedAt time.Time     `yaml:"created_at"`
-	UpdatedAt time.Time     `yaml:"updated_at"`
+	ID        TableID       `yaml:"id" json:"id"`
+	Chapter   ChapterNumber `yaml:"chapter" json:"chapter"`
+	Sequence  int           `yaml:"sequence" json:"sequence"`
+	Caption   string        `yaml:"caption" json:"caption"`
+	Content   string        `yaml:"content" json:"content"` // Markdown table content
+	Format    string        `yaml:"format" json:"format"`  // "markdown" for MVP
+	CreatedAt time.Time     `yaml:"created_at" json:"created_at"`
+	UpdatedAt time.Time     `yaml:"updated_at" json:"updated_at"`
 }
 
 // ChapterCount tracks counts for a chapter
 type ChapterCount struct {
-	Sections int `yaml:"sections"`
-	Figures  int `yaml:"figures"`
-	Tables   int `yaml:"tables"`
+	Sections int `yaml:"sections" json:"sections"`
+	Figures  int `yaml:"figures" json:"figures"`
+	Tables   int `yaml:"tables" json:"tables"`
 }
 
 // Manifest represents the document manifest
 type Manifest struct {
-	Document      Document                    `yaml:"document"`
-	ChapterCounts map[ChapterNumber]ChapterCount `yaml:"chapter_counts"`
-	CreatedAt     time.Time                   `yaml:"created_at"`
-	UpdatedAt     time.Time                   `yaml:"updated_at"`
+	Document      Document                    `yaml:"document" json:"document"`
+	ChapterCounts map[ChapterNumber]ChapterCount `yaml:"chapter_counts" json:"chapter_counts"`
+	CreatedAt     time.Time                   `yaml:"created_at" json:"created_at"`
+	UpdatedAt     time.Time                   `yaml:"updated_at" json:"updated_at"`
 }
 
 // TextStyle represents font and color settings for text elements
 type TextStyle struct {
-	FontFamily string `yaml:"font_family"`
-	FontSize   string `yaml:"font_size,omitempty"`
-	Color      string `yaml:"color,omitempty"`
+	FontFamily string `yaml:"font_family" json:"font_family"`
+	FontSize   string `yaml:"font_size,omitempty" json:"font_size,omitempty"`
+	Color      string `yaml:"color,omitempty" json:"color,omitempty"`
 }
 
 // Style represents document styling configuration
 type Style struct {
 	// Text styles
-	Body          TextStyle      `yaml:"body"`
-	Heading       TextStyle      `yaml:"heading"`
-	Monospace     TextStyle      `yaml:"monospace,omitempty"`
+	Body          TextStyle      `yaml:"body" json:"body"`
+	Heading       TextStyle      `yaml:"heading" json:"heading"`
+	Monospace     TextStyle      `yaml:"monospace,omitempty" json:"monospace,omitempty"`
 	
 	// Global styles
-	LinkColor     string         `yaml:"link_color,omitempty"`
-	Margins       Margins        `yaml:"margins"`
-	LineSpacing   string         `yaml:"line_spacing,omitempty"`
+	LinkColor     string         `yaml:"link_color,omitempty" json:"link_color,omitempty"`
+	Margins       Margins        `yaml:"margins" json:"margins"`
+	LineSpacing   string         `yaml:"line_spacing,omitempty" json:"line_spacing,omitempty"`
 	
 	// Header/Footer with template support
-	HeaderFooter  HeaderFooter   `yaml:"header_footer"`
+	HeaderFooter  HeaderFooter   `yaml:"header_footer" json:"header_footer"`
 	
 	// Other settings
-	NumberingStyle NumberingStyle `yaml:"numbering_style"`
+	NumberingStyle NumberingStyle `yaml:"numbering_style" json:"numbering_style"`
 	
 	// Output-specific templates
-	ReferenceDocx string         `yaml:"reference_docx,omitempty"`
-	StyleCSS      string         `yaml:"style_css,omitempty"`
-	LaTeXHeader   string         `yaml:"latex_header,omitempty"`
+	ReferenceDocx string         `yaml:"reference_docx,omitempty" json:"reference_docx,omitempty"`
+	StyleCSS      string         `yaml:"style_css,omitempty" json:"style_css,omitempty"`
+	LaTeXHeader   string         `yaml:"latex_header,omitempty" json:"latex_header,omitempty"`
 }
 
 // Margins represents document margins
 type Margins struct {
-	Top    string `yaml:"top"`
-	Bottom string `yaml:"bottom"`
-	Left   string `yaml:"left"`
-	Right  string `yaml:"right"`
+	Top    string `yaml:"top" json:"top"`
+	Bottom string `yaml:"bottom" json:"bottom"`
+	Left   string `yaml:"left" json:"left"`
+	Right  string `yaml:"right" json:"right"`
 }
 
 // HeaderFooter represents header and footer configuration
 type HeaderFooter struct {
-	HeaderTemplate string `yaml:"header_template,omitempty"`
-	FooterTemplate string `yaml:"footer_template,omitempty"`
+	HeaderTemplate string `yaml:"header_template,omitempty" json:"header_template,omitempty"`
+	FooterTemplate string `yaml:"footer_template,omitempty" json:"footer_template,omitempty"`
 }
 
 // NumberingStyle represents numbering preferences
 type NumberingStyle struct {
-	Chapters bool `yaml:"chapters"`
-	Sections bool `yaml:"sections"`
-	Figures  bool `yaml:"figures"`
-	Tables   bool `yaml:"tables"`
+	Chapters bool `yaml:"chapters" json:"chapters"`
+	Sections bool `yaml:"sections" json:"sections"`
+	Figures  bool `yaml:"figures" json:"figures"`
+	Tables   bool `yaml:"tables" json:"tables"`
 }
 
 // PandocConfig represents pandoc-specific configuration
 type PandocConfig struct {
-	PDFEngine     string            `yaml:"pdf_engine"`
-	TOC           bool              `yaml:"toc"`
-	TOCDepth      int               `yaml:"toc_depth"`
-	CitationStyle string            `yaml:"citation_style"`
-	Args          []string          `yaml:"args"`
-	Variables     map[string]string `yaml:"variables"`
+	PDFEngine     string            `yaml:"pdf_engine" json:"pdf_engine"`
+	TOC           bool              `yaml:"toc" json:"toc"`
+	TOCDepth      int               `yaml:"toc_depth" json:"toc_depth"`
+	CitationStyle string            `yaml:"citation_style" json:"citation_style"`
+	Args          []string          `yaml:"args" json:"args"`
+	Variables     map[string]string `yaml:"variables" json:"variables"`
 }
 
 // ValidationReport represents document validation results
 type ValidationReport struct {
-	Valid    bool     `yaml:"valid"`
-	Errors   []string `yaml:"errors"`
-	Warnings []string `yaml:"warnings"`
+	Valid    bool     `yaml:"valid" json:"valid"`
+	Errors   []string `yaml:"errors" json:"errors"`
+	Warnings []string `yaml:"warnings" json:"warnings"`
 }
 
 // ExportOptions represents export configuration
 type ExportOptions struct {
-	Format   ExportFormat  `yaml:"format"`
-	Chapters []ChapterNumber `yaml:"chapters,omitempty"`
-	Template string        `yaml:"template,omitempty"`
+	Format   ExportFormat  `yaml:"format" json:"format"`
+	Chapters []ChapterNumber `yaml:"chapters,omitempty" json:"chapters,omitempty"`
+	Template string        `yaml:"template,omitempty" json:"template,omitempty"`
 }
 
 // Validate validates a DocumentID
@@ -382,8 +382,8 @@ func DefaultPandocConfig() PandocConfig {
 
 // StyleValidation represents style validation results
 type StyleValidation struct {
-	Errors   []string `yaml:"errors"`   // Fatal errors that prevent export
-	Warnings []string `yaml:"warnings"` // Non-fatal issues with fallbacks
+	Errors   []string `yaml:"errors" json:"errors"`     // Fatal errors that prevent export
+	Warnings []string `yaml:"warnings" json:"warnings"` // Non-fatal issues with fallbacks
 }
 
 // IsValid returns true if there are no fatal errors
