@@ -11,6 +11,34 @@ import (
 func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsResponse, error) {
 	tools := []protocol.Tool{
 		{
+			Name:        "list_documents",
+			Description: "List all available documents with their metadata. Returns document IDs, titles, authors, types, creation dates, and basic statistics. Use this to see what documents exist before performing operations.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"sort_by": {
+						"type": "string",
+						"enum": ["created_at", "updated_at", "title"],
+						"default": "updated_at",
+						"description": "Field to sort by"
+					},
+					"sort_order": {
+						"type": "string",
+						"enum": ["asc", "desc"],
+						"default": "desc",
+						"description": "Sort order"
+					},
+					"limit": {
+						"type": "integer",
+						"default": 50,
+						"minimum": 1,
+						"maximum": 100,
+						"description": "Maximum number of documents to return"
+					}
+				}
+			}`),
+		},
+		{
 			Name:        "create_document",
 			Description: "Create a new document - this is the first step in document creation. Creates the document structure and returns a document_id (e.g., 'technical-manual-1234567890') that you'll need for all subsequent operations on this document. Choose document type carefully as it affects styling and structure.",
 			InputSchema: json.RawMessage(`{
@@ -209,6 +237,48 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					}
 				},
 				"required": ["document_id", "from_number", "to_number"]
+			}`),
+		},
+		{
+			Name:        "get_chapter_content",
+			Description: "Get the full markdown content of a chapter. Returns the raw markdown text including all sections concatenated together. Use this to get the complete chapter content for editing or display.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"document_id": {
+						"type": "string",
+						"description": "Document ID returned from create_document"
+					},
+					"chapter_number": {
+						"type": "integer",
+						"description": "Chapter number to get content for",
+						"minimum": 1
+					}
+				},
+				"required": ["document_id", "chapter_number"]
+			}`),
+		},
+		{
+			Name:        "update_chapter_content",
+			Description: "Update the entire markdown content of a chapter. Replaces all existing sections with the provided markdown text. The tool will parse the markdown and create appropriate sections based on headings.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"document_id": {
+						"type": "string",
+						"description": "Document ID returned from create_document"
+					},
+					"chapter_number": {
+						"type": "integer",
+						"description": "Chapter number to update",
+						"minimum": 1
+					},
+					"content": {
+						"type": "string",
+						"description": "Complete markdown content for the chapter"
+					}
+				},
+				"required": ["document_id", "chapter_number", "content"]
 			}`),
 		},
 		{

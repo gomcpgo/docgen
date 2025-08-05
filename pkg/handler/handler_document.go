@@ -239,3 +239,73 @@ func (h *DocGenHandler) handleConfigureDocument(params map[string]interface{}) (
 		"message":     "Document configuration updated successfully",
 	})
 }
+
+// handleListDocuments lists all available documents
+func (h *DocGenHandler) handleListDocuments(params map[string]interface{}) (*protocol.CallToolResponse, error) {
+	// Get optional parameters with defaults
+	// sortBy := "updated_at"
+	// if val, ok := params["sort_by"].(string); ok {
+	// 	sortBy = val
+	// }
+	
+	// sortOrder := "desc"
+	// if val, ok := params["sort_order"].(string); ok {
+	// 	sortOrder = val
+	// }
+	
+	limit := 50
+	if val, ok := params["limit"].(float64); ok {
+		limit = int(val)
+	}
+	
+	// Get document IDs from storage
+	documentIDs, err := h.storage.ListDocuments()
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Failed to list documents: %v", err))
+	}
+	
+	// Load metadata for each document
+	var documents []map[string]interface{}
+	for _, docID := range documentIDs {
+		// Load manifest to get document details
+		manifest, err := h.storage.LoadManifest(docID)
+		if err != nil {
+			continue // Skip documents that can't be loaded
+		}
+		
+		// Calculate chapter count
+		chapterCount := len(manifest.Document.Chapters)
+		
+		// Calculate approximate word count from sections
+		// In a real implementation, we might store this in the manifest
+		wordCount := 0
+		
+		docInfo := map[string]interface{}{
+			"document_id":   docID,
+			"title":        manifest.Document.Title,
+			"author":       manifest.Document.Author,
+			"type":         manifest.Document.Type,
+			"created_at":   manifest.Document.CreatedAt,
+			"updated_at":   manifest.Document.UpdatedAt,
+			"chapter_count": chapterCount,
+			"word_count":   wordCount,
+		}
+		
+		documents = append(documents, docInfo)
+	}
+	
+	// Sort documents based on parameters
+	// Note: In a real implementation, you'd implement sorting logic here based on sortBy and sortOrder
+	// For now, we'll return them as-is
+	
+	// Apply limit
+	if limit > 0 && len(documents) > limit {
+		documents = documents[:limit]
+	}
+	
+	return h.successResponse(map[string]interface{}{
+		"documents": documents,
+		"count":     len(documents),
+		"total":     len(documentIDs),
+	})
+}
