@@ -104,46 +104,6 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 	})
 }
 
-func (h *DocGenHandler) handlePreviewChapter(params map[string]interface{}) (*protocol.CallToolResponse, error) {
-	// Get document ID
-	docID, err := h.getDocumentID(params)
-	if err != nil {
-		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
-	}
-
-	// Get chapter number
-	chapterNum, err := h.getChapterNumber(params)
-	if err != nil {
-		return h.errorResponse(fmt.Sprintf("Invalid chapter_number: %v", err))
-	}
-
-	// Get format (optional, defaults to "html")
-	format := "html"
-	if fmt, ok := params["format"].(string); ok && fmt != "" {
-		format = fmt
-	}
-
-	// Validate format
-	validFormats := map[string]bool{
-		"html": true, "pdf": true,
-	}
-	if !validFormats[format] {
-		return h.errorResponse(fmt.Sprintf("invalid format: %s (must be html or pdf)", format))
-	}
-
-	// Preview the chapter
-	previewPath, err := h.exporter.PreviewChapter(string(docID), chapterNum, types.ExportFormat(format), h.manager.RebuildChapterMarkdown)
-	if err != nil {
-		return h.errorResponse(fmt.Sprintf("Failed to preview chapter: %v", err))
-	}
-
-	return h.successResponse(map[string]interface{}{
-		"preview_path": previewPath,
-		"format":       format,
-		"chapter":      int(chapterNum),
-		"message":      fmt.Sprintf("Chapter %d preview generated: %s", chapterNum, previewPath),
-	})
-}
 
 func (h *DocGenHandler) handleValidateDocument(params map[string]interface{}) (*protocol.CallToolResponse, error) {
 	docID, err := h.getDocumentID(params)

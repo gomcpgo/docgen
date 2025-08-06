@@ -136,3 +136,96 @@ func (h *DocGenHandler) handleDeleteSection(params map[string]interface{}) (*pro
 		"message":        fmt.Sprintf("Section %s deleted successfully", sectionNumStr),
 	})
 }
+
+func (h *DocGenHandler) handleGetSectionContent(params map[string]interface{}) (*protocol.CallToolResponse, error) {
+	// Get document ID
+	docID, err := h.getDocumentID(params)
+	if err != nil {
+		return h.errorResponse(fmt.Sprintf("Invalid document_id: %v", err))
+	}
+
+	// Get sections array
+	sectionsRaw, ok := params["sections"].([]interface{})
+	if !ok || len(sectionsRaw) == 0 {
+		return h.errorResponse("sections parameter is required and must be a non-empty array")
+	}
+
+	// Result will contain section content
+	type SectionContent struct {
+		ChapterNumber  int    `json:"chapter_number"`
+		SectionNumber  string `json:"section_number"`
+		Content        string `json:"content"`
+		Title          string `json:"title"`
+	}
+
+	var results []SectionContent
+
+	// Process each section request
+	for _, sectionRaw := range sectionsRaw {
+		section, ok := sectionRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// Get chapter number
+		chapterNum, err := h.getChapterNumber(section)
+		if err != nil {
+			continue
+		}
+
+		// Get section number
+		sectionNumStr, ok := section["section_number"].(string)
+		if !ok || sectionNumStr == "" {
+			continue
+		}
+
+		// Parse section number
+		sectionNum, err := h.parseSectionNumber(sectionNumStr)
+		if err != nil {
+			continue
+		}
+
+		// Load section content
+		sectionContent, err := h.manager.GetSectionContent(docID, chapterNum, sectionNum)
+		if err != nil {
+			// Section might not exist, continue with others
+			continue
+		}
+
+		// Get chapter metadata to find section title
+		structure, err := h.manager.GetDocumentStructure(docID)
+		if err != nil {
+			continue
+		}
+
+		// Find the chapter and section to get the title
+		var sectionTitle string
+		for _, ch := range structure.Document.Chapters {
+			if ch.Number == chapterNum {
+				for _, s := range ch.Sections {
+					if s.Number.String() == sectionNum.String() {
+						sectionTitle = s.Title
+						break
+					}
+				}
+				break
+			}
+		}
+
+		results = append(results, SectionContent{
+			ChapterNumber: int(chapterNum),
+			SectionNumber: sectionNumStr,
+			Content:       sectionContent,
+			Title:         sectionTitle,
+		})
+	}
+
+	if len(results) == 0 {
+		return h.errorResponse("No sections found or could not load any section content")
+	}
+
+	return h.successResponse(map[string]interface{}{
+		"document_id": docID,
+		"sections":    results,
+	})
+}
