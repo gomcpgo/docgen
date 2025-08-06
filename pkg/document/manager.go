@@ -95,6 +95,19 @@ func (m *Manager) GetDocumentStructure(docID types.DocumentID) (*types.Manifest,
 		return nil, fmt.Errorf("failed to load document manifest: %w", err)
 	}
 
+	// Load section metadata from each chapter
+	for i, chapter := range manifest.Document.Chapters {
+		chapterMetadata, err := m.storage.LoadChapterMetadata(string(docID), int(chapter.Number))
+		if err != nil {
+			// Log error but continue - don't fail the entire operation
+			continue
+		}
+		// Update the chapter with its sections (without content)
+		manifest.Document.Chapters[i].Sections = chapterMetadata.Sections
+		manifest.Document.Chapters[i].Figures = chapterMetadata.Figures
+		manifest.Document.Chapters[i].Tables = chapterMetadata.Tables
+	}
+
 	return manifest, nil
 }
 
@@ -935,4 +948,27 @@ func generateDocumentID(title string) string {
 	id = fmt.Sprintf("%s-%d", id, timestamp)
 	
 	return id
+}
+
+// GetSectionContent retrieves the content of a specific section
+func (m *Manager) GetSectionContent(docID types.DocumentID, chapterNum types.ChapterNumber, sectionNum types.SectionNumber) (string, error) {
+	if err := docID.Validate(); err != nil {
+		return "", fmt.Errorf("invalid document ID: %w", err)
+	}
+
+	exists, err := m.storage.ChapterExists(string(docID), int(chapterNum))
+	if err != nil {
+		return "", fmt.Errorf("failed to check chapter existence: %w", err)
+	}
+	if !exists {
+		return "", fmt.Errorf("chapter %d not found in document %s", chapterNum, docID)
+	}
+
+	// Load section content from file
+	content, err := m.storage.LoadSectionContent(string(docID), int(chapterNum), sectionNum)
+	if err != nil {
+		return "", fmt.Errorf("failed to load section content: %w", err)
+	}
+
+	return content, nil
 }

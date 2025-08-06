@@ -155,25 +155,6 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 			}`),
 		},
 		{
-			Name:        "get_chapter",
-			Description: "Get detailed information about a specific chapter including its title, content, sections, figures, and tables. Use this to view or edit existing chapter content. Returns the full chapter structure with all sections and assets.",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"document_id": {
-						"type": "string",
-						"description": "Document ID returned from create_document (e.g., 'technical-manual-1234567890')"
-					},
-					"chapter_number": {
-						"type": "integer",
-						"description": "Chapter number (1-based, sequential). Use get_document_structure to see available chapter numbers.",
-						"minimum": 1
-					}
-				},
-				"required": ["document_id", "chapter_number"]
-			}`),
-		},
-		{
 			Name:        "update_chapter_metadata",
 			Description: "Update chapter information like title. Use this to rename chapters or update chapter-level information. Does not affect chapter content - use update_section for content changes.",
 			InputSchema: json.RawMessage(`{
@@ -237,48 +218,6 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					}
 				},
 				"required": ["document_id", "from_number", "to_number"]
-			}`),
-		},
-		{
-			Name:        "get_chapter_content",
-			Description: "Get the full markdown content of a chapter. Returns the raw markdown text including all sections concatenated together. Use this to get the complete chapter content for editing or display.",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"document_id": {
-						"type": "string",
-						"description": "Document ID returned from create_document"
-					},
-					"chapter_number": {
-						"type": "integer",
-						"description": "Chapter number to get content for",
-						"minimum": 1
-					}
-				},
-				"required": ["document_id", "chapter_number"]
-			}`),
-		},
-		{
-			Name:        "update_chapter_content",
-			Description: "Update the entire markdown content of a chapter. Replaces all existing sections with the provided markdown text. The tool will parse the markdown and create appropriate sections based on headings.",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"document_id": {
-						"type": "string",
-						"description": "Document ID returned from create_document"
-					},
-					"chapter_number": {
-						"type": "integer",
-						"description": "Chapter number to update",
-						"minimum": 1
-					},
-					"content": {
-						"type": "string",
-						"description": "Complete markdown content for the chapter"
-					}
-				},
-				"required": ["document_id", "chapter_number", "content"]
 			}`),
 		},
 		{
@@ -363,6 +302,40 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					}
 				},
 				"required": ["document_id", "chapter_number", "section_number"]
+			}`),
+		},
+		{
+			Name:        "get_section_content",
+			Description: "Get the content of one or more sections. This is useful for progressively loading section content as needed. Can retrieve a single section or multiple sections at once.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"document_id": {
+						"type": "string",
+						"description": "Document ID returned from create_document"
+					},
+					"sections": {
+						"type": "array",
+						"description": "Array of sections to retrieve",
+						"items": {
+							"type": "object",
+							"properties": {
+								"chapter_number": {
+									"type": "integer",
+									"description": "Chapter number",
+									"minimum": 1
+								},
+								"section_number": {
+									"type": "string",
+									"description": "Section number (e.g., '1.1', '1.2.1')"
+								}
+							},
+							"required": ["chapter_number", "section_number"]
+						},
+						"minItems": 1
+					}
+				},
+				"required": ["document_id", "sections"]
 			}`),
 		},
 		{
@@ -473,31 +446,6 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					}
 				},
 				"required": ["document_id", "format"]
-			}`),
-		},
-		{
-			Name:        "preview_chapter",
-			Description: "Generate a quick preview/export of a single chapter for review before full document export. Useful for checking formatting, content, and layout of individual chapters. Supports PDF and HTML formats. Much faster than full document export.",
-			InputSchema: json.RawMessage(`{
-				"type": "object",
-				"properties": {
-					"document_id": {
-						"type": "string",
-						"description": "Document ID returned from create_document (e.g., 'technical-manual-1234567890')"
-					},
-					"chapter_number": {
-						"type": "integer",
-						"description": "Chapter number to preview",
-						"minimum": 1
-					},
-					"format": {
-						"type": "string",
-						"enum": ["pdf", "html"],
-						"description": "Preview format (default: html)",
-						"default": "html"
-					}
-				},
-				"required": ["document_id", "chapter_number"]
 			}`),
 		},
 		{

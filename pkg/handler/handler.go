@@ -68,18 +68,12 @@ func (h *DocGenHandler) CallTool(ctx context.Context, req *protocol.CallToolRequ
 	// Chapter operations
 	case "add_chapter":
 		return h.handleAddChapter(req.Arguments)
-	case "get_chapter":
-		return h.handleGetChapter(req.Arguments)
 	case "update_chapter_metadata":
 		return h.handleUpdateChapterMetadata(req.Arguments)
 	case "delete_chapter":
 		return h.handleDeleteChapter(req.Arguments)
 	case "move_chapter":
 		return h.handleMoveChapter(req.Arguments)
-	case "get_chapter_content":
-		return h.handleGetChapterContent(req.Arguments)
-	case "update_chapter_content":
-		return h.handleUpdateChapterContent(req.Arguments)
 
 	// Section operations
 	case "add_section":
@@ -88,6 +82,8 @@ func (h *DocGenHandler) CallTool(ctx context.Context, req *protocol.CallToolRequ
 		return h.handleUpdateSection(req.Arguments)
 	case "delete_section":
 		return h.handleDeleteSection(req.Arguments)
+	case "get_section_content":
+		return h.handleGetSectionContent(req.Arguments)
 
 	// Image operations
 	case "add_image":
@@ -100,8 +96,6 @@ func (h *DocGenHandler) CallTool(ctx context.Context, req *protocol.CallToolRequ
 	// Export operations
 	case "export_document":
 		return h.handleExportDocument(req.Arguments)
-	case "preview_chapter":
-		return h.handlePreviewChapter(req.Arguments)
 	case "validate_document":
 		return h.handleValidateDocument(req.Arguments)
 
