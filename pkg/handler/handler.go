@@ -200,5 +200,6 @@ func (h *DocGenHandler) errorResponse(message string) (*protocol.CallToolRespons
 				Text: fmt.Sprintf("Error: %s", message),
 			},
 		},
+		IsError: true,
 	}, nil
 }
