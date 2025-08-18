@@ -99,6 +99,20 @@ func (h *DocGenHandler) CallTool(ctx context.Context, req *protocol.CallToolRequ
 	case "validate_document":
 		return h.handleValidateDocument(req.Arguments)
 
+	// Style management operations
+	case "save_style":
+		return h.handleSaveStyle(req.Arguments)
+	case "load_style":
+		return h.handleLoadStyle(req.Arguments)
+	case "list_styles":
+		return h.handleListStyles(req.Arguments)
+	case "delete_style":
+		return h.handleDeleteStyle(req.Arguments)
+	case "set_document_style":
+		return h.handleSetDocumentStyle(req.Arguments)
+	case "get_document_style":
+		return h.handleGetDocumentStyle(req.Arguments)
+
 	default:
 		return &protocol.CallToolResponse{
 			Content: []protocol.ToolContent{

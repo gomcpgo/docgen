@@ -466,6 +466,145 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 				"required": ["document_id"]
 			}`),
 		},
+		// Style management tools
+		{
+			Name:        "save_style",
+			Description: "Save or update a document style. Accepts style data as JSON and saves it in YAML format. Validates font families, sizes, colors, and other style properties.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"style_name": {
+						"type": "string",
+						"description": "Name for the style (must be a valid filename without special characters)"
+					},
+					"style_data": {
+						"type": "object",
+						"description": "Style configuration object with properties like body, heading, margins, etc.",
+						"properties": {
+							"body": {
+								"type": "object",
+								"properties": {
+									"font_family": {"type": "string"},
+									"font_size": {"type": "string"},
+									"color": {"type": "string"}
+								}
+							},
+							"heading": {
+								"type": "object",
+								"properties": {
+									"font_family": {"type": "string"},
+									"color": {"type": "string"}
+								}
+							},
+							"monospace": {
+								"type": "object",
+								"properties": {
+									"font_family": {"type": "string"},
+									"font_size": {"type": "string"},
+									"color": {"type": "string"}
+								}
+							},
+							"link_color": {"type": "string"},
+							"line_spacing": {"type": "string"},
+							"margins": {
+								"type": "object",
+								"properties": {
+									"top": {"type": "string"},
+									"bottom": {"type": "string"},
+									"left": {"type": "string"},
+									"right": {"type": "string"}
+								}
+							},
+							"header_footer": {
+								"type": "object",
+								"properties": {
+									"header_template": {"type": "string"},
+									"footer_template": {"type": "string"}
+								}
+							},
+							"numbering_style": {
+								"type": "object",
+								"properties": {
+									"chapters": {"type": "boolean"},
+									"sections": {"type": "boolean"},
+									"figures": {"type": "boolean"},
+									"tables": {"type": "boolean"}
+								}
+							}
+						}
+					}
+				},
+				"required": ["style_name", "style_data"]
+			}`),
+		},
+		{
+			Name:        "load_style",
+			Description: "Load a specific style by name. Returns the style configuration as JSON, including fonts, colors, margins, and other formatting settings.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"style_name": {
+						"type": "string",
+						"description": "Name of the style to load"
+					}
+				},
+				"required": ["style_name"]
+			}`),
+		},
+		{
+			Name:        "list_styles",
+			Description: "List all available document styles. Returns an array of style names that can be used for document formatting.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {}
+			}`),
+		},
+		{
+			Name:        "delete_style",
+			Description: "Delete a document style permanently. The style file will be removed and cannot be recovered.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"style_name": {
+						"type": "string",
+						"description": "Name of the style to delete"
+					}
+				},
+				"required": ["style_name"]
+			}`),
+		},
+		{
+			Name:        "set_document_style",
+			Description: "Set the default style for a document. This style will be used when exporting the document unless overridden by the export_document style_name parameter.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"document_id": {
+						"type": "string",
+						"description": "Document ID returned from create_document"
+					},
+					"style_name": {
+						"type": "string",
+						"description": "Name of the style to set for this document"
+					}
+				},
+				"required": ["document_id", "style_name"]
+			}`),
+		},
+		{
+			Name:        "get_document_style",
+			Description: "Get the currently set style for a document. Returns the style name and optionally the full style configuration.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"document_id": {
+						"type": "string",
+						"description": "Document ID returned from create_document"
+					}
+				},
+				"required": ["document_id"]
+			}`),
+		},
 	}
 
 	return &protocol.ListToolsResponse{Tools: tools}, nil

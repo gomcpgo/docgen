@@ -64,8 +64,8 @@ func (h *DocGenHandler) handleExportDocument(params map[string]interface{}) (*pr
 		log.Printf("[DOCGEN HANDLER] Warning: Failed to ensure default style: %v", err)
 	}
 
-	// Load style using enhanced resolution logic
-	style, err := h.resolveStyle(styleName)
+	// Load style using enhanced resolution logic with document style
+	style, err := h.resolveStyleWithDocument(styleName, manifest.Document.StyleName)
 	if err != nil {
 		return h.errorResponse(fmt.Sprintf("Failed to load style: %v", err))
 	}
@@ -126,8 +126,8 @@ func (h *DocGenHandler) handleValidateDocument(params map[string]interface{}) (*
 	})
 }
 
-// resolveStyle implements the enhanced style resolution logic
-func (h *DocGenHandler) resolveStyle(styleName string) (*types.Style, error) {
+// resolveStyleWithDocument implements the enhanced style resolution logic with document style priority
+func (h *DocGenHandler) resolveStyleWithDocument(styleName string, documentStyleName string) (*types.Style, error) {
 	// Priority 1: If style_name parameter provided, use it
 	if styleName != "" {
 		log.Printf("[DOCGEN HANDLER] Using provided style: %s", styleName)
@@ -138,7 +138,20 @@ func (h *DocGenHandler) resolveStyle(styleName string) (*types.Style, error) {
 		return style, nil
 	}
 	
-	// Priority 2: Check DOCGEN_CURRENT_STYLE environment variable
+	// Priority 2: If document has a style set, use it
+	if documentStyleName != "" {
+		log.Printf("[DOCGEN HANDLER] Using document's style: %s", documentStyleName)
+		style, err := h.storage.LoadStyleByName(documentStyleName)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("document style '%s' not found - style may have been deleted", documentStyleName)
+			}
+			return nil, fmt.Errorf("failed to load document style '%s': %w", documentStyleName, err)
+		}
+		return style, nil
+	}
+	
+	// Priority 3: Check DOCGEN_CURRENT_STYLE environment variable
 	currentStyle := os.Getenv("DOCGEN_CURRENT_STYLE")
 	if currentStyle != "" {
 		log.Printf("[DOCGEN HANDLER] Using DOCGEN_CURRENT_STYLE: %s", currentStyle)
@@ -149,13 +162,18 @@ func (h *DocGenHandler) resolveStyle(styleName string) (*types.Style, error) {
 		return style, nil
 	}
 	
-	// Priority 3: Use default style (auto-created if needed)
+	// Priority 4: Use default style (auto-created if needed)
 	log.Printf("[DOCGEN HANDLER] Using default style")
 	style, err := h.storage.LoadStyleByName("default")
 	if err != nil {
 		return nil, fmt.Errorf("default style not found: %w", err)
 	}
 	return style, nil
+}
+
+// resolveStyle implements the enhanced style resolution logic (backward compatibility)
+func (h *DocGenHandler) resolveStyle(styleName string) (*types.Style, error) {
+	return h.resolveStyleWithDocument(styleName, "")
 }
 
 // loadStyleByNameOrPath tries to load a style by name first, then as a file path
