@@ -172,6 +172,11 @@ func runTestScenarios(h *docgenHandler.DocGenHandler, tempDir string) {
 	fmt.Println("\n📝 Test 8: Testing chapter management...")
 	testChapterManagement(h, docID)
 	fmt.Println("   Chapter management tests completed")
+	
+	// Test 9: Style management
+	fmt.Println("\n🎨 Test 9: Testing style management...")
+	testStyleManagement(h, docID)
+	fmt.Println("   Style management tests completed")
 }
 
 // createSampleBook creates a sample book document
@@ -421,6 +426,7 @@ func getDocumentStructure(h *docgenHandler.DocGenHandler, docID string) *types.M
 
 // exportToPDF exports document to PDF format
 func exportToPDF(h *docgenHandler.DocGenHandler, docID string) string {
+	// Test 1: Export with default style (no style_name parameter)
 	params := map[string]interface{}{
 		"document_id": docID,
 		"format":      "pdf",
@@ -438,6 +444,26 @@ func exportToPDF(h *docgenHandler.DocGenHandler, docID string) string {
 	if response.IsError {
 		fmt.Printf("   ⚠️  Error exporting PDF: %s\n", response.Content[0].Text)
 		return ""
+	}
+	
+	// Test 2: Export with style_name parameter
+	fmt.Println("   Testing export with style_name parameter...")
+	paramsWithStyle := map[string]interface{}{
+		"document_id": docID,
+		"format":      "pdf",
+		"style_name":  "default", // Use default style explicitly
+	}
+
+	responseWithStyle, err := h.CallTool(nil, &protocol.CallToolRequest{
+		Name:      "export_document",
+		Arguments: paramsWithStyle,
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to export PDF with style_name: %v\n", err)
+	} else if responseWithStyle.IsError {
+		fmt.Printf("   ⚠️  Error exporting PDF with style_name: %s\n", responseWithStyle.Content[0].Text)
+	} else {
+		fmt.Println("   ✅ Export with style_name parameter succeeded")
 	}
 
 	// For demo, return a mock path
@@ -547,6 +573,145 @@ func testChapterManagement(h *docgenHandler.DocGenHandler, docID string) {
 	}
 
 	fmt.Printf("   ✅ Chapter operations completed successfully\n")
+}
+
+// testStyleManagement tests style management operations
+func testStyleManagement(h *docgenHandler.DocGenHandler, docID string) {
+	// Test 1: List existing styles
+	response, err := h.CallTool(nil, &protocol.CallToolRequest{
+		Name:      "list_styles",
+		Arguments: map[string]interface{}{},
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to list styles: %v\n", err)
+		return
+	}
+	
+	if !response.IsError {
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(response.Content[0].Text), &result); err == nil {
+			if styles, ok := result["styles"].([]interface{}); ok {
+				fmt.Printf("   Found %d existing style(s)\n", len(styles))
+			}
+		}
+	}
+	
+	// Test 2: Save a new style
+	testStyle := map[string]interface{}{
+		"body": map[string]interface{}{
+			"font_family": "Georgia",
+			"font_size":   "11pt",
+			"color":       "#333333",
+		},
+		"heading": map[string]interface{}{
+			"font_family": "Arial",
+			"color":       "#003366",
+		},
+		"margins": map[string]interface{}{
+			"top":    "1.5in",
+			"bottom": "1.5in", 
+			"left":   "1.25in",
+			"right":  "1.25in",
+		},
+		"line_spacing": "1.8",
+	}
+	
+	response, err = h.CallTool(nil, &protocol.CallToolRequest{
+		Name: "save_style",
+		Arguments: map[string]interface{}{
+			"style_name": "test-modern",
+			"style_data": testStyle,
+		},
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to save style: %v\n", err)
+		return
+	}
+	
+	if response.IsError {
+		fmt.Printf("   ⚠️  Error saving style: %s\n", response.Content[0].Text)
+		return
+	}
+	fmt.Println("   ✅ Saved new style 'test-modern'")
+	
+	// Test 3: Load the saved style
+	response, err = h.CallTool(nil, &protocol.CallToolRequest{
+		Name: "load_style",
+		Arguments: map[string]interface{}{
+			"style_name": "test-modern",
+		},
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to load style: %v\n", err)
+		return
+	}
+	
+	if response.IsError {
+		fmt.Printf("   ⚠️  Error loading style: %s\n", response.Content[0].Text)
+		return
+	}
+	fmt.Println("   ✅ Loaded style 'test-modern'")
+	
+	// Test 4: Set document style
+	response, err = h.CallTool(nil, &protocol.CallToolRequest{
+		Name: "set_document_style",
+		Arguments: map[string]interface{}{
+			"document_id": docID,
+			"style_name":  "test-modern",
+		},
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to set document style: %v\n", err)
+		return
+	}
+	
+	if response.IsError {
+		fmt.Printf("   ⚠️  Error setting document style: %s\n", response.Content[0].Text)
+		return
+	}
+	fmt.Println("   ✅ Set document style to 'test-modern'")
+	
+	// Test 5: Get document style
+	response, err = h.CallTool(nil, &protocol.CallToolRequest{
+		Name: "get_document_style",
+		Arguments: map[string]interface{}{
+			"document_id": docID,
+		},
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to get document style: %v\n", err)
+		return
+	}
+	
+	if response.IsError {
+		fmt.Printf("   ⚠️  Error getting document style: %s\n", response.Content[0].Text)
+		return
+	}
+	
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(response.Content[0].Text), &result); err == nil {
+		if styleName, ok := result["style_name"].(string); ok {
+			fmt.Printf("   ✅ Document style is: %s\n", styleName)
+		}
+	}
+	
+	// Test 6: Delete the test style
+	response, err = h.CallTool(nil, &protocol.CallToolRequest{
+		Name: "delete_style",
+		Arguments: map[string]interface{}{
+			"style_name": "test-modern",
+		},
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to delete style: %v\n", err)
+		return
+	}
+	
+	if response.IsError {
+		fmt.Printf("   ⚠️  Error deleting style: %s\n", response.Content[0].Text)
+		return
+	}
+	fmt.Println("   ✅ Deleted style 'test-modern'")
 }
 
 // isPandocAvailable checks if pandoc is available
@@ -659,19 +824,19 @@ func runDirectExport(exportSpec string, customStyleFile string) {
 
 	fmt.Printf("✅ Document structure retrieved successfully\n")
 
-	// Handle custom style if provided
-	if customStyleFile != "" {
-		fmt.Printf("\n🎨 Using custom style: %s\n", customStyleFile)
-		// Set DOCGEN_CURRENT_STYLE to use the enhanced resolution logic
-		os.Setenv("DOCGEN_CURRENT_STYLE", customStyleFile)
-	}
-
 	// Export the document using MCP handler (which now supports enhanced style resolution)
 	fmt.Printf("\n🚀 Exporting document to %s...\n", format)
 	
 	exportParams := map[string]interface{}{
 		"document_id": docID,
 		"format":      format,
+	}
+	
+	// Handle custom style if provided
+	if customStyleFile != "" {
+		fmt.Printf("\n🎨 Using custom style via style_name parameter: %s\n", customStyleFile)
+		// Use the new style_name parameter instead of env variable
+		exportParams["style_name"] = customStyleFile
 	}
 
 	exportResponse, err := handler.CallTool(nil, &protocol.CallToolRequest{

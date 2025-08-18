@@ -68,6 +68,7 @@ type Document struct {
 	Title       string        `yaml:"title" json:"title"`
 	Author      string        `yaml:"author" json:"author"`
 	Type        DocumentType  `yaml:"type" json:"type"`
+	StyleName   string        `yaml:"style_name,omitempty" json:"style_name,omitempty"`
 	CreatedAt   time.Time     `yaml:"created_at" json:"created_at"`
 	UpdatedAt   time.Time     `yaml:"updated_at" json:"updated_at"`
 	Chapters    []Chapter     `yaml:"chapters" json:"chapters"`

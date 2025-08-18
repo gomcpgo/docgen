@@ -220,7 +220,8 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 		
 		if style != nil {
 			// Generate and include LaTeX header for advanced styling
-			latexHeader := generateLaTeXHeader(style, manifest)
+			// Pass the PDF engine to ensure consistent behavior
+			latexHeader := generateLaTeXHeaderWithEngine(style, manifest, pdfEngine)
 			log.Printf("[DOCGEN PDF] Generated LaTeX header (%d chars):\n%s\n", len(latexHeader), latexHeader)
 			if latexHeader != "" {
 				// Create temporary LaTeX header file
@@ -228,6 +229,7 @@ func (e *Exporter) GeneratePandocCommand(documentID, inputFile, outputFile strin
 				log.Printf("[DOCGEN PDF] Writing LaTeX header to: %s\n", tempHeaderFile)
 				if err := os.WriteFile(tempHeaderFile, []byte(latexHeader), 0644); err == nil {
 					args = append(args, "-H", tempHeaderFile)
+					// Note: The temp file should be cleaned up by the caller after pandoc execution
 				}
 			}
 			
@@ -552,7 +554,18 @@ func findPandocPath(configPath string) (string, error) {
 }
 
 // generateLaTeXHeader creates a LaTeX header file with advanced styling
+// Deprecated: Use generateLaTeXHeaderWithEngine instead
 func generateLaTeXHeader(style *types.Style, manifest *types.Manifest) string {
+	// Default to checking if XeLaTeX is needed based on style
+	pdfEngine := "pdflatex"
+	if needsXeLaTeX(style) {
+		pdfEngine = "xelatex"
+	}
+	return generateLaTeXHeaderWithEngine(style, manifest, pdfEngine)
+}
+
+// generateLaTeXHeaderWithEngine creates a LaTeX header file with advanced styling for a specific PDF engine
+func generateLaTeXHeaderWithEngine(style *types.Style, manifest *types.Manifest, pdfEngine string) string {
 	if style == nil {
 		return ""
 	}
@@ -560,7 +573,11 @@ func generateLaTeXHeader(style *types.Style, manifest *types.Manifest) string {
 	var header strings.Builder
 
 	// Font settings (requires XeLaTeX or LuaLaTeX)
-	if needsXeLaTeX(style) {
+	// Only include fontspec if we're actually using XeLaTeX or LuaLaTeX
+	isXeLaTeX := pdfEngine == "xelatex" || pdfEngine == "lualatex"
+	log.Printf("[DOCGEN LaTeX] PDF Engine: %s, isXeLaTeX: %v, needsXeLaTeX: %v\n", pdfEngine, isXeLaTeX, needsXeLaTeX(style))
+	
+	if isXeLaTeX {
 		header.WriteString("% Font settings (requires XeLaTeX or LuaLaTeX)\n")
 		header.WriteString("\\usepackage{fontspec}\n")
 		
@@ -585,8 +602,8 @@ func generateLaTeXHeader(style *types.Style, manifest *types.Manifest) string {
 	header.WriteString("\n% Font sizes and section styling\n")
 	header.WriteString("\\usepackage{sectsty}\n")
 	
-	// Apply heading font to all sections if different from body
-	if style.Heading.FontFamily != "" && style.Heading.FontFamily != style.Body.FontFamily {
+	// Apply heading font to all sections if different from body (only if using XeLaTeX)
+	if isXeLaTeX && style.Heading.FontFamily != "" && style.Heading.FontFamily != style.Body.FontFamily {
 		header.WriteString("\\allsectionsfont{\\headingfont}\n")
 	}
 
