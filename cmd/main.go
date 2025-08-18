@@ -421,6 +421,7 @@ func getDocumentStructure(h *docgenHandler.DocGenHandler, docID string) *types.M
 
 // exportToPDF exports document to PDF format
 func exportToPDF(h *docgenHandler.DocGenHandler, docID string) string {
+	// Test 1: Export with default style (no style_name parameter)
 	params := map[string]interface{}{
 		"document_id": docID,
 		"format":      "pdf",
@@ -438,6 +439,26 @@ func exportToPDF(h *docgenHandler.DocGenHandler, docID string) string {
 	if response.IsError {
 		fmt.Printf("   ⚠️  Error exporting PDF: %s\n", response.Content[0].Text)
 		return ""
+	}
+	
+	// Test 2: Export with style_name parameter
+	fmt.Println("   Testing export with style_name parameter...")
+	paramsWithStyle := map[string]interface{}{
+		"document_id": docID,
+		"format":      "pdf",
+		"style_name":  "default", // Use default style explicitly
+	}
+
+	responseWithStyle, err := h.CallTool(nil, &protocol.CallToolRequest{
+		Name:      "export_document",
+		Arguments: paramsWithStyle,
+	})
+	if err != nil {
+		fmt.Printf("   ⚠️  Failed to export PDF with style_name: %v\n", err)
+	} else if responseWithStyle.IsError {
+		fmt.Printf("   ⚠️  Error exporting PDF with style_name: %s\n", responseWithStyle.Content[0].Text)
+	} else {
+		fmt.Println("   ✅ Export with style_name parameter succeeded")
 	}
 
 	// For demo, return a mock path
@@ -659,19 +680,19 @@ func runDirectExport(exportSpec string, customStyleFile string) {
 
 	fmt.Printf("✅ Document structure retrieved successfully\n")
 
-	// Handle custom style if provided
-	if customStyleFile != "" {
-		fmt.Printf("\n🎨 Using custom style: %s\n", customStyleFile)
-		// Set DOCGEN_CURRENT_STYLE to use the enhanced resolution logic
-		os.Setenv("DOCGEN_CURRENT_STYLE", customStyleFile)
-	}
-
 	// Export the document using MCP handler (which now supports enhanced style resolution)
 	fmt.Printf("\n🚀 Exporting document to %s...\n", format)
 	
 	exportParams := map[string]interface{}{
 		"document_id": docID,
 		"format":      format,
+	}
+	
+	// Handle custom style if provided
+	if customStyleFile != "" {
+		fmt.Printf("\n🎨 Using custom style via style_name parameter: %s\n", customStyleFile)
+		// Use the new style_name parameter instead of env variable
+		exportParams["style_name"] = customStyleFile
 	}
 
 	exportResponse, err := handler.CallTool(nil, &protocol.CallToolRequest{

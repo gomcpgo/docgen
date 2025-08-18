@@ -436,6 +436,10 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 						"enum": ["pdf", "docx", "html"],
 						"description": "Export format"
 					},
+					"style_name": {
+						"type": "string",
+						"description": "Style to use for export. Can be a style name (e.g., 'default', 'academic') or a file path to a custom style file (.json or .yaml). If not provided, uses DOCGEN_CURRENT_STYLE env var or default style."
+					},
 					"chapters": {
 						"type": "array",
 						"items": {

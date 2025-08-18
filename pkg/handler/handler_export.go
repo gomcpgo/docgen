@@ -130,10 +130,10 @@ func (h *DocGenHandler) handleValidateDocument(params map[string]interface{}) (*
 func (h *DocGenHandler) resolveStyle(styleName string) (*types.Style, error) {
 	// Priority 1: If style_name parameter provided, use it
 	if styleName != "" {
-		log.Printf("[DOCGEN HANDLER] Using provided style name: %s", styleName)
-		style, err := h.storage.LoadStyleByName(styleName)
+		log.Printf("[DOCGEN HANDLER] Using provided style: %s", styleName)
+		style, err := h.loadStyleByNameOrPath(styleName)
 		if err != nil {
-			return nil, fmt.Errorf("style '%s' not found: %w", styleName, err)
+			return nil, fmt.Errorf("failed to load style '%s': %w", styleName, err)
 		}
 		return style, nil
 	}
@@ -141,28 +141,12 @@ func (h *DocGenHandler) resolveStyle(styleName string) (*types.Style, error) {
 	// Priority 2: Check DOCGEN_CURRENT_STYLE environment variable
 	currentStyle := os.Getenv("DOCGEN_CURRENT_STYLE")
 	if currentStyle != "" {
-		log.Printf("[DOCGEN HANDLER] Found DOCGEN_CURRENT_STYLE: %s", currentStyle)
-		
-		// First try as style name (styles/{currentStyle}.yaml)
-		style, err := h.storage.LoadStyleByName(currentStyle)
-		if err == nil {
-			log.Printf("[DOCGEN HANDLER] Successfully loaded style by name: %s", currentStyle)
-			return style, nil
+		log.Printf("[DOCGEN HANDLER] Using DOCGEN_CURRENT_STYLE: %s", currentStyle)
+		style, err := h.loadStyleByNameOrPath(currentStyle)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load style from DOCGEN_CURRENT_STYLE '%s': %w", currentStyle, err)
 		}
-		
-		// If that fails, try as file path
-		if strings.Contains(currentStyle, "/") || strings.Contains(currentStyle, "\\") {
-			log.Printf("[DOCGEN HANDLER] Trying DOCGEN_CURRENT_STYLE as file path: %s", currentStyle)
-			style, err := h.loadStyleFromFile(currentStyle)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load style from path '%s': %w", currentStyle, err)
-			}
-			log.Printf("[DOCGEN HANDLER] Successfully loaded style from file path: %s", currentStyle)
-			return style, nil
-		}
-		
-		// Neither worked
-		return nil, fmt.Errorf("style '%s' not found as name or file path", currentStyle)
+		return style, nil
 	}
 	
 	// Priority 3: Use default style (auto-created if needed)
@@ -172,6 +156,30 @@ func (h *DocGenHandler) resolveStyle(styleName string) (*types.Style, error) {
 		return nil, fmt.Errorf("default style not found: %w", err)
 	}
 	return style, nil
+}
+
+// loadStyleByNameOrPath tries to load a style by name first, then as a file path
+func (h *DocGenHandler) loadStyleByNameOrPath(styleRef string) (*types.Style, error) {
+	// First try as style name (styles/{styleRef}.yaml)
+	style, err := h.storage.LoadStyleByName(styleRef)
+	if err == nil {
+		log.Printf("[DOCGEN HANDLER] Successfully loaded style by name: %s", styleRef)
+		return style, nil
+	}
+	
+	// If that fails and it looks like a path, try as file path
+	if strings.Contains(styleRef, "/") || strings.Contains(styleRef, "\\") {
+		log.Printf("[DOCGEN HANDLER] Trying as file path: %s", styleRef)
+		style, err := h.loadStyleFromFile(styleRef)
+		if err != nil {
+			return nil, fmt.Errorf("not found as name or file path: %w", err)
+		}
+		log.Printf("[DOCGEN HANDLER] Successfully loaded style from file path: %s", styleRef)
+		return style, nil
+	}
+	
+	// Not found as name and doesn't look like a path
+	return nil, fmt.Errorf("style '%s' not found", styleRef)
 }
 
 // loadStyleFromFile loads a style from a file path (supports JSON and YAML)
