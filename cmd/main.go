@@ -31,6 +31,7 @@ func main() {
 	versionFlag := flag.Bool("version", false, "Show version information")
 	exportDoc := flag.String("export", "", "Export existing document by ID (format: documentID,format). Example: -export my-doc-123,pdf")
 	styleFile := flag.String("style", "", "Custom style file to use for export (JSON or YAML). Example: -style '/path/to/style.json'")
+	rebuildChapter := flag.String("rebuild", "", "Rebuild chapter markdown (format: documentID,chapterNumber). Example: -rebuild my-doc-123,1")
 	flag.Parse()
 
 	if *versionFlag {
@@ -42,6 +43,11 @@ func main() {
 
 	if *exportDoc != "" {
 		runDirectExport(*exportDoc, *styleFile)
+		return
+	}
+
+	if *rebuildChapter != "" {
+		runRebuildChapter(*rebuildChapter)
 		return
 	}
 
@@ -729,6 +735,61 @@ func isPandocAvailable() bool {
 }
 
 // runDirectExport directly exports a document for troubleshooting
+// runRebuildChapter rebuilds the markdown for a specific chapter
+func runRebuildChapter(rebuildSpec string) {
+	fmt.Println("Document Generation MCP Server - Rebuild Chapter Mode")
+	fmt.Println("====================================================")
+
+	// Parse rebuild specification (documentID,chapterNumber)
+	parts := strings.Split(rebuildSpec, ",")
+	if len(parts) != 2 {
+		log.Fatalf("Invalid rebuild specification. Use format: documentID,chapterNumber (e.g., my-doc-123,1)")
+	}
+
+	docID := strings.TrimSpace(parts[0])
+	chapterNumStr := strings.TrimSpace(parts[1])
+	
+	var chapterNum int
+	if _, err := fmt.Sscanf(chapterNumStr, "%d", &chapterNum); err != nil {
+		log.Fatalf("Invalid chapter number: %s", chapterNumStr)
+	}
+
+	fmt.Printf("Document ID: %s\n", docID)
+	fmt.Printf("Chapter Number: %d\n", chapterNum)
+
+	// Check required environment variables
+	rootDir := os.Getenv("DOCGEN_ROOT_DIR")
+	if rootDir == "" {
+		log.Fatalf("DOCGEN_ROOT_DIR environment variable not set. Please set it to the directory containing your documents.")
+	}
+
+	fmt.Printf("Root directory: %s\n", rootDir)
+
+	// Load configuration
+	cfg := &config.Config{
+		RootDir:      rootDir,
+		MaxDocuments: 100,
+		PandocPath:   "pandoc",
+	}
+
+	// Create docgen handler
+	docHandler, err := docgenHandler.NewDocGenHandler(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create docgen handler: %v", err)
+	}
+
+	// Get the manager from handler (we need to expose it)
+	manager := docHandler.GetManager()
+	
+	// Rebuild the chapter
+	if err := manager.RebuildChapterMarkdown(types.DocumentID(docID), types.ChapterNumber(chapterNum)); err != nil {
+		log.Fatalf("Failed to rebuild chapter: %v", err)
+	}
+
+	fmt.Printf("\n✓ Chapter %d rebuilt successfully\n", chapterNum)
+	fmt.Printf("Updated file: %s\n", filepath.Join(rootDir, docID, "chapters", fmt.Sprintf("%02d", chapterNum), "chapter.md"))
+}
+
 func runDirectExport(exportSpec string, customStyleFile string) {
 	fmt.Println("Document Generation MCP Server - Direct Export Mode")
 	fmt.Println("===================================================")

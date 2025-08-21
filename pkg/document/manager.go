@@ -748,6 +748,11 @@ func (m *Manager) AddImage(docID types.DocumentID, chapterNum types.ChapterNumbe
 		return "", fmt.Errorf("failed to save chapter metadata: %w", err)
 	}
 
+	// Rebuild chapter markdown to include the new figure
+	if err := m.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		return "", fmt.Errorf("failed to rebuild chapter markdown: %w", err)
+	}
+
 	return figureID, nil
 }
 
@@ -791,6 +796,11 @@ func (m *Manager) UpdateImageCaption(docID types.DocumentID, figureID types.Figu
 	// Save updated chapter metadata
 	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
 		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Rebuild chapter markdown to reflect the updated caption
+	if err := m.RebuildChapterMarkdown(docID, types.ChapterNumber(chapterNum)); err != nil {
+		return fmt.Errorf("failed to rebuild chapter markdown: %w", err)
 	}
 
 	return nil
@@ -844,6 +854,11 @@ func (m *Manager) DeleteImage(docID types.DocumentID, figureID types.FigureID) e
 	// Save updated chapter metadata
 	if err := m.storage.SaveChapterMetadata(string(docID), chapter); err != nil {
 		return fmt.Errorf("failed to save chapter metadata: %w", err)
+	}
+
+	// Rebuild chapter markdown to remove the deleted figure
+	if err := m.RebuildChapterMarkdown(docID, types.ChapterNumber(chapterNum)); err != nil {
+		return fmt.Errorf("failed to rebuild chapter markdown: %w", err)
 	}
 
 	return nil
@@ -903,6 +918,16 @@ func (m *Manager) RebuildChapterMarkdown(docID types.DocumentID, chapterNum type
 		// Add section content
 		content.WriteString(sectionContent)
 		content.WriteString("\n\n")
+	}
+	
+	// Add figures at the end of the chapter
+	if len(chapter.Figures) > 0 {
+		for _, figure := range chapter.Figures {
+			// Add figure in markdown format
+			content.WriteString(fmt.Sprintf("![%s](%s)\n\n", figure.Caption, figure.ImagePath))
+			// Add figure caption as centered text
+			content.WriteString(fmt.Sprintf("*Figure %s: %s*\n\n", figure.ID, figure.Caption))
+		}
 	}
 	
 	// Save compiled content to chapter.md
