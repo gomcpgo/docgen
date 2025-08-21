@@ -32,6 +32,7 @@ func main() {
 	exportDoc := flag.String("export", "", "Export existing document by ID (format: documentID,format). Example: -export my-doc-123,pdf")
 	styleFile := flag.String("style", "", "Custom style file to use for export (JSON or YAML). Example: -style '/path/to/style.json'")
 	rebuildChapter := flag.String("rebuild", "", "Rebuild chapter markdown (format: documentID,chapterNumber). Example: -rebuild my-doc-123,1")
+	testFigures := flag.Bool("test-figures", false, "Run figure functionality test by creating a sample document with images")
 	flag.Parse()
 
 	if *versionFlag {
@@ -53,6 +54,11 @@ func main() {
 
 	if *testMode {
 		runIntegrationTests(*keepFiles)
+		return
+	}
+	
+	if *testFigures {
+		runFigureTest()
 		return
 	}
 
@@ -940,6 +946,155 @@ func runDirectExport(exportSpec string, customStyleFile string) {
 	}
 
 	fmt.Printf("\n🎉 Direct export completed!\n")
+}
+
+// runFigureTest creates a test document with section-associated figures
+func runFigureTest() {
+	fmt.Println("Document Generation MCP Server - Figure Test Mode")
+	fmt.Println("=================================================")
+	
+	// Check required environment variables
+	rootDir := os.Getenv("DOCGEN_ROOT_DIR")
+	if rootDir == "" {
+		log.Fatalf("DOCGEN_ROOT_DIR environment variable not set. Please set it to the directory for test documents.")
+	}
+	
+	fmt.Printf("Root directory: %s\n", rootDir)
+	
+	// Load configuration
+	cfg := &config.Config{
+		RootDir:      rootDir,
+		MaxDocuments: 100,
+		PandocPath:   "pandoc",
+	}
+	
+	// Create docgen handler
+	handler, err := docgenHandler.NewDocGenHandler(cfg)
+	if err != nil {
+		log.Fatalf("Failed to create docgen handler: %v", err)
+	}
+	
+	manager := handler.GetManager()
+	
+	fmt.Println("\n📚 Creating test document with figures...")
+	
+	// Create a document
+	docID, err := manager.CreateDocument("Figure Test Document", "Test Author", types.DocumentTypeBook)
+	if err != nil {
+		log.Fatalf("Failed to create document: %v", err)
+	}
+	fmt.Printf("✓ Created document: %s\n", docID)
+	
+	// Add a chapter
+	chapterNum, err := manager.AddChapter(docID, "Introduction to Testing", nil)
+	if err != nil {
+		log.Fatalf("Failed to add chapter: %v", err)
+	}
+	fmt.Printf("✓ Added chapter %d\n", chapterNum)
+	
+	// Add sections
+	section1, err := manager.AddSection(docID, chapterNum, "Getting Started", 
+		"This section introduces the basic concepts of our testing framework. "+
+		"We'll explore how images can be positioned at the beginning or end of sections.", 1)
+	if err != nil {
+		log.Fatalf("Failed to add section 1: %v", err)
+	}
+	fmt.Printf("✓ Added section %s\n", section1.String())
+	
+	section2, err := manager.AddSection(docID, chapterNum, "Advanced Topics",
+		"This section covers more advanced testing scenarios. "+
+		"Images here demonstrate different positioning options.", 1)
+	if err != nil {
+		log.Fatalf("Failed to add section 2: %v", err)
+	}
+	fmt.Printf("✓ Added section %s\n", section2.String())
+	
+	// Create test image files
+	testImageDir := filepath.Join(rootDir, "test-images")
+	if err := os.MkdirAll(testImageDir, 0755); err != nil {
+		log.Fatalf("Failed to create test image directory: %v", err)
+	}
+	
+	// Create placeholder images (simple PNG files)
+	image1Path := filepath.Join(testImageDir, "test-image-1.png")
+	image2Path := filepath.Join(testImageDir, "test-image-2.png")
+	
+	// Create simple 1x1 PNG files as placeholders
+	pngData := []byte{
+		0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+		0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+		0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, // IDAT chunk
+		0x54, 0x08, 0x99, 0x63, 0xF8, 0x0F, 0x00, 0x00,
+		0x01, 0x01, 0x01, 0x00, 0x1B, 0xB6, 0xEE, 0x56,
+		0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, // IEND chunk
+		0xAE, 0x42, 0x60, 0x82,
+	}
+	
+	if err := os.WriteFile(image1Path, pngData, 0644); err != nil {
+		log.Fatalf("Failed to create test image 1: %v", err)
+	}
+	if err := os.WriteFile(image2Path, pngData, 0644); err != nil {
+		log.Fatalf("Failed to create test image 2: %v", err)
+	}
+	fmt.Printf("✓ Created test images\n")
+	
+	// Add figures to sections
+	figure1ID, err := manager.AddImage(docID, chapterNum, section1.String(), 
+		image1Path, "Figure at the beginning of section 1.1", "beginning")
+	if err != nil {
+		log.Fatalf("Failed to add figure 1: %v", err)
+	}
+	fmt.Printf("✓ Added figure %s at beginning of section %s\n", figure1ID, section1.String())
+	
+	figure2ID, err := manager.AddImage(docID, chapterNum, section2.String(),
+		image2Path, "Figure at the end of section 1.2", "end")
+	if err != nil {
+		log.Fatalf("Failed to add figure 2: %v", err)
+	}
+	fmt.Printf("✓ Added figure %s at end of section %s\n", figure2ID, section2.String())
+	
+	// Rebuild chapter to include figures
+	if err := manager.RebuildChapterMarkdown(docID, chapterNum); err != nil {
+		log.Fatalf("Failed to rebuild chapter: %v", err)
+	}
+	fmt.Printf("✓ Rebuilt chapter markdown with figures\n")
+	
+	// Get document structure to verify
+	manifest, err := manager.GetDocumentStructure(docID)
+	if err != nil {
+		log.Fatalf("Failed to get document structure: %v", err)
+	}
+	
+	fmt.Printf("\n📋 Document Structure:\n")
+	fmt.Printf("   Title: %s\n", manifest.Document.Title)
+	fmt.Printf("   Author: %s\n", manifest.Document.Author)
+	fmt.Printf("   Chapters: %d\n", len(manifest.Document.Chapters))
+	
+	for _, chapter := range manifest.Document.Chapters {
+		fmt.Printf("\n   Chapter %d: %s\n", chapter.Number, chapter.Title)
+		fmt.Printf("     Sections: %d\n", len(chapter.Sections))
+		fmt.Printf("     Figures: %d\n", len(chapter.Figures))
+		
+		for _, fig := range chapter.Figures {
+			fmt.Printf("       - %s (section %s, position: %s)\n", 
+				fig.ID, fig.SectionNumber, fig.Position)
+			fmt.Printf("         Caption: %s\n", fig.Caption)
+		}
+	}
+	
+	// Output document location
+	docPath := filepath.Join(rootDir, string(docID))
+	chapterPath := filepath.Join(docPath, "chapters", fmt.Sprintf("%02d", chapterNum), "chapter.md")
+	
+	fmt.Printf("\n✅ Test completed successfully!\n")
+	fmt.Printf("📁 Document location: %s\n", docPath)
+	fmt.Printf("📄 Chapter file: %s\n", chapterPath)
+	fmt.Printf("\nYou can now:\n")
+	fmt.Printf("1. View the chapter file to see how figures are included\n")
+	fmt.Printf("2. Export the document: ./docgen -export '%s,pdf'\n", docID)
+	fmt.Printf("3. Use this document ID in the Savant app to test the display\n")
 }
 
 // loadCustomStyleFile loads a style file in JSON or YAML format
