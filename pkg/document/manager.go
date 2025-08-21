@@ -2,6 +2,9 @@ package document
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -692,10 +695,13 @@ func (m *Manager) MoveChapter(docID types.DocumentID, fromPos, toPos types.Chapt
 	return nil
 }
 
-// AddImage adds a new image figure to a chapter
-func (m *Manager) AddImage(docID types.DocumentID, chapterNum types.ChapterNumber, imagePath, caption, position string) (types.FigureID, error) {
+// AddImage adds a new image figure to a section within a chapter
+func (m *Manager) AddImage(docID types.DocumentID, chapterNum types.ChapterNumber, sectionNumber string, imagePath, caption, position string) (types.FigureID, error) {
 	if err := docID.Validate(); err != nil {
 		return "", fmt.Errorf("invalid document ID: %w", err)
+	}
+	if sectionNumber == "" {
+		return "", fmt.Errorf("section number is required")
 	}
 	if imagePath == "" {
 		return "", fmt.Errorf("image path is required")
@@ -704,18 +710,32 @@ func (m *Manager) AddImage(docID types.DocumentID, chapterNum types.ChapterNumbe
 		return "", fmt.Errorf("caption is required")
 	}
 
-	// Validate position
-	validPositions := map[string]bool{
-		"here": true, "top": true, "bottom": true, "page": true, "float": true,
+	// Validate position (only "beginning" or "end" allowed)
+	if position != "beginning" && position != "end" {
+		return "", fmt.Errorf("invalid position: %s (must be 'beginning' or 'end')", position)
 	}
-	if !validPositions[position] {
-		return "", fmt.Errorf("invalid position: %s (must be one of: here, top, bottom, page, float)", position)
-	}
-
-	// Load current chapter
+	
+	// Load current chapter and validate section exists
 	chapter, err := m.storage.LoadChapterMetadata(string(docID), int(chapterNum))
 	if err != nil {
 		return "", fmt.Errorf("failed to load chapter: %w", err)
+	}
+	
+	// Check if section exists
+	sectionExists := false
+	for _, section := range chapter.Sections {
+		sectionNum := types.NewSectionNumber()
+		for _, part := range section.Number {
+			sectionNum = append(sectionNum, part)
+		}
+		if sectionNum.String() == sectionNumber {
+			sectionExists = true
+			break
+		}
+	}
+	
+	if !sectionExists {
+		return "", fmt.Errorf("section %s does not exist in chapter %d", sectionNumber, chapterNum)
 	}
 
 	// Generate next figure sequence number for this chapter
@@ -724,19 +744,26 @@ func (m *Manager) AddImage(docID types.DocumentID, chapterNum types.ChapterNumbe
 	// Generate figure ID
 	figureID := types.FigureID(fmt.Sprintf("fig-%d.%d", chapterNum, sequence))
 
-	// Create new figure
+	// Copy image to assets folder
+	destImagePath, err := m.copyImageToAssets(string(docID), imagePath, string(figureID))
+	if err != nil {
+		return "", fmt.Errorf("failed to copy image to assets: %w", err)
+	}
+
+	// Create new figure with relative path
 	now := time.Now()
 	figure := types.Figure{
-		ID:        figureID,
-		Chapter:   chapterNum,
-		Sequence:  sequence,
-		Caption:   caption,
-		ImagePath: imagePath,
-		Position:  types.ImagePosition(position),
-		Alignment: types.AlignCenter, // Default alignment
-		Width:     "",                // Will be determined automatically
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:            figureID,
+		Chapter:       chapterNum,
+		Sequence:      sequence,
+		SectionNumber: sectionNumber, // Store the section association
+		Caption:       caption,
+		ImagePath:     destImagePath, // Use the relative path
+		Position:      types.FigurePosition(position),
+		Alignment:     types.AlignCenter, // Default alignment
+		Width:         "",                // Will be determined automatically
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	// Add figure to chapter
@@ -862,6 +889,61 @@ func (m *Manager) DeleteImage(docID types.DocumentID, figureID types.FigureID) e
 	}
 
 	return nil
+}
+
+// copyImageToAssets copies an image file to the document's assets/images folder
+func (m *Manager) copyImageToAssets(docID, sourcePath, figureID string) (string, error) {
+	// Check if source file exists
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("source image not found: %w", err)
+	}
+	if sourceInfo.IsDir() {
+		return "", fmt.Errorf("source path is a directory, not a file")
+	}
+
+	// Get file extension
+	ext := filepath.Ext(sourcePath)
+	if ext == "" {
+		ext = ".png" // Default to PNG if no extension
+	}
+
+	// Create destination filename using figure ID
+	destFileName := fmt.Sprintf("%s%s", figureID, ext)
+	
+	// Build destination path relative to document root
+	relativeDestPath := filepath.Join("assets", "images", destFileName)
+	
+	// Build absolute destination path
+	absoluteDestPath := filepath.Join(m.config.RootDir, docID, relativeDestPath)
+	
+	// Ensure the assets/images directory exists
+	destDir := filepath.Dir(absoluteDestPath)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create assets directory: %w", err)
+	}
+
+	// Open source file
+	sourceFile, err := os.Open(sourcePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open source image: %w", err)
+	}
+	defer sourceFile.Close()
+
+	// Create destination file
+	destFile, err := os.Create(absoluteDestPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create destination image: %w", err)
+	}
+	defer destFile.Close()
+
+	// Copy the file
+	if _, err := io.Copy(destFile, sourceFile); err != nil {
+		return "", fmt.Errorf("failed to copy image: %w", err)
+	}
+
+	// Return the relative path (relative to document root)
+	return relativeDestPath, nil
 }
 
 // parseFigureIDChapter extracts the chapter number from a figure ID (e.g., "fig-1.2" -> 1)

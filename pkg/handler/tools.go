@@ -340,7 +340,7 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 		},
 		{
 			Name:        "add_image",
-			Description: "Add an image/figure to a chapter with automatic numbering (fig-1.1, fig-1.2, etc.). Images are automatically numbered within each chapter and include captions. Supports positioning, sizing, and alignment options. The image file must exist at the specified path.",
+			Description: "Add an image figure to a specific section within a chapter. Images are automatically numbered (fig-1.1, fig-1.2) and can be positioned at the beginning (after section title) or end of the section.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
@@ -353,6 +353,10 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 						"description": "Chapter number (1-based, sequential). Use get_document_structure to see available chapter numbers.",
 						"minimum": 1
 					},
+					"section_number": {
+						"type": "string",
+						"description": "Section number where the image will be placed (e.g., '1.1', '1.2.1'). Use get_document_structure to see available sections."
+					},
 					"image_path": {
 						"type": "string",
 						"description": "Path to the image file"
@@ -363,9 +367,9 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 					},
 					"position": {
 						"type": "string",
-						"enum": ["here", "top", "bottom", "page", "float"],
-						"description": "Image position (default: here)",
-						"default": "here"
+						"enum": ["beginning", "end"],
+						"description": "Position within the section: 'beginning' (after section title) or 'end' (after section content). Default: end",
+						"default": "end"
 					},
 					"width": {
 						"type": "string",
@@ -378,7 +382,7 @@ func (h *DocGenHandler) ListTools(ctx context.Context) (*protocol.ListToolsRespo
 						"default": "center"
 					}
 				},
-				"required": ["document_id", "chapter_number", "image_path", "caption"]
+				"required": ["document_id", "chapter_number", "section_number", "image_path", "caption"]
 			}`),
 		},
 		{

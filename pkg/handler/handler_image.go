@@ -22,6 +22,12 @@ func (h *DocGenHandler) handleAddImage(params map[string]interface{}) (*protocol
 		return h.errorResponse(fmt.Sprintf("Invalid chapter_number: %v", err))
 	}
 
+	// Get section number (required)
+	sectionNumber, ok := params["section_number"].(string)
+	if !ok || sectionNumber == "" {
+		return h.errorResponse("section_number parameter is required")
+	}
+
 	// Get image path
 	imagePath, ok := params["image_path"].(string)
 	if !ok || imagePath == "" {
@@ -34,14 +40,17 @@ func (h *DocGenHandler) handleAddImage(params map[string]interface{}) (*protocol
 		return h.errorResponse("caption parameter is required")
 	}
 
-	// Get position (optional, defaults to "here")
-	position := "here"
+	// Get position (optional, defaults to "end")
+	position := "end"
 	if pos, ok := params["position"].(string); ok && pos != "" {
+		if pos != "beginning" && pos != "end" {
+			return h.errorResponse("position must be 'beginning' or 'end'")
+		}
 		position = pos
 	}
 
 	// Add the image
-	figureID, err := h.manager.AddImage(docID, chapterNum, imagePath, caption, position)
+	figureID, err := h.manager.AddImage(docID, chapterNum, sectionNumber, imagePath, caption, position)
 	if err != nil {
 		return h.errorResponse(fmt.Sprintf("Failed to add image: %v", err))
 	}

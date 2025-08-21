@@ -42,15 +42,12 @@ const (
 	ExportFormatHTML ExportFormat = "html"
 )
 
-// ImagePosition represents image positioning options
-type ImagePosition string
+// FigurePosition represents figure positioning within a section
+type FigurePosition string
 
 const (
-	PositionHere   ImagePosition = "here"
-	PositionTop    ImagePosition = "top"
-	PositionBottom ImagePosition = "bottom"
-	PositionPage   ImagePosition = "page"
-	PositionFloat  ImagePosition = "float"
+	PositionBeginning FigurePosition = "beginning" // After section title
+	PositionEnd       FigurePosition = "end"       // After section content
 )
 
 // ImageAlignment represents image alignment options
@@ -98,16 +95,17 @@ type Section struct {
 
 // Figure represents an image figure
 type Figure struct {
-	ID        FigureID       `yaml:"id" json:"id"`
-	Chapter   ChapterNumber  `yaml:"chapter" json:"chapter"`
-	Sequence  int            `yaml:"sequence" json:"sequence"`
-	Caption   string         `yaml:"caption" json:"caption"`
-	ImagePath string         `yaml:"image_path" json:"image_path"`
-	Position  ImagePosition  `yaml:"position" json:"position"`
-	Width     string         `yaml:"width,omitempty" json:"width,omitempty"`
-	Alignment ImageAlignment `yaml:"alignment" json:"alignment"`
-	CreatedAt time.Time      `yaml:"created_at" json:"created_at"`
-	UpdatedAt time.Time      `yaml:"updated_at" json:"updated_at"`
+	ID            FigureID       `yaml:"id" json:"id"`
+	Chapter       ChapterNumber  `yaml:"chapter" json:"chapter"`
+	Sequence      int            `yaml:"sequence" json:"sequence"`
+	SectionNumber string         `yaml:"section_number" json:"section_number"` // Mandatory: which section this belongs to
+	Caption       string         `yaml:"caption" json:"caption"`
+	ImagePath     string         `yaml:"image_path" json:"image_path"`
+	Position      FigurePosition `yaml:"position" json:"position"` // "beginning" or "end" of section
+	Width         string         `yaml:"width,omitempty" json:"width,omitempty"`
+	Alignment     ImageAlignment `yaml:"alignment" json:"alignment"`
+	CreatedAt     time.Time      `yaml:"created_at" json:"created_at"`
+	UpdatedAt     time.Time      `yaml:"updated_at" json:"updated_at"`
 }
 
 // Table represents a document table
